@@ -49,6 +49,106 @@ def _rlimits_args() -> list[str]:
     ]
 
 
+# --------------------------------------------------------- github passthrough
+# The coding agent must be able to init/commit/push to GitHub like Claude Code
+# or Antigravity. Inside the sandbox HOME is the workspace and secrets are
+# filtered, so git/gh would find no credentials. We inject exactly what's
+# needed, only for git/gh commands: the gh CLI binary (read-only bind) and the
+# HOST's GitHub token from `gh auth login`, written to a 0600 file in the
+# user's cache and read-only bound into the sandbox. The token is passed as a
+# FILE (never argv, never env — argv is visible in `ps`), and the git
+# credential helper reads it from inside. Filesystem confinement is unchanged.
+_TOKEN_REL_PATH = "gh_token"
+
+
+def _token_file_path() -> str:
+    return str(Path.home() / ".cache" / "neuralweb" / "gh_token")
+
+
+def _ensure_host_token_file() -> str:
+    """Write the host's `gh auth token` to ~/.cache/neuralweb/gh_token (0600)
+    and return its path — empty string when there is no host login."""
+    try:
+        import subprocess
+        p = subprocess.run(["gh", "auth", "token"], capture_output=True,
+                           text=True, timeout=8)
+        tok = (p.stdout or "").strip()
+        if p.returncode == 0 and tok.startswith(("gho_", "ghp_", "github_pat_")):
+            path = Path(_token_file_path())
+            changed = True
+            if path.exists():
+                try:
+                    changed = path.read_text().strip() != tok
+                except OSError:
+                    changed = True
+            if changed:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    f.write(tok + "\n")
+            return str(path)
+    except Exception:
+        pass
+    return ""
+
+
+def _git_identity() -> tuple[str, str]:
+    """Host git identity, with a sensible fallback so agent commits work."""
+    import subprocess
+    name = email = ""
+    try:
+        name = subprocess.run(["git", "config", "--global", "user.name"],
+                              capture_output=True, text=True, timeout=5).stdout.strip()
+        email = subprocess.run(["git", "config", "--global", "user.email"],
+                               capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception:
+        pass
+    return name or "ADITYA BODKE", email or "adityabodke@users.noreply.github.com"
+
+
+# sandbox-side mount point for the gh binary + token file
+_GH_SANDBOX_DIR = "/tmp/.neuralweb-gh"
+
+
+def _github_support(command: str) -> tuple[dict, list[tuple[str, str]]]:
+    """Returns (extra_env, ro_binds) when the command involves git/gh."""
+    import re
+    if not re.search(r"\b(git|gh)\b", command):
+        return {}, []
+    env: dict = {}
+    binds: list[tuple[str, str]] = []
+    gh = shutil.which("gh")
+    token_file = _ensure_host_token_file()
+    if gh:
+        # /usr/local is read-only inside the sandbox — bind the real gh binary
+        # to the private tmpfs PLUS a tiny wrapper that injects GH_TOKEN read
+        # from the bound token FILE (secret never in argv/env) and execs it.
+        binds.append((gh, f"{_GH_SANDBOX_DIR}/gh.bin"))
+        wrapper = Path(_token_file_path()).parent / "gh_wrapper"
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            f'GH_TOKEN="$(cat {_GH_SANDBOX_DIR}/{_TOKEN_REL_PATH})" '
+            f'exec "{_GH_SANDBOX_DIR}/gh.bin" "$@"\n')
+        wrapper.chmod(0o755)
+        binds.append((str(wrapper), f"{_GH_SANDBOX_DIR}/gh"))
+    # identity (commits never fail on missing user.name)
+    name, email = _git_identity()
+    entries = [("user.name", name), ("user.email", email)]
+    if token_file:
+        binds.append((token_file, f"{_GH_SANDBOX_DIR}/{_TOKEN_REL_PATH}"))
+        # git-credential protocol: read the token FILE inside the sandbox —
+        # the secret never travels through argv or environment variables
+        entries.append(("credential.helper",
+                        f"!printf 'username=x-access-token\\npassword=%s\\n' "
+                        f'"$(cat {_GH_SANDBOX_DIR}/{_TOKEN_REL_PATH})"'))
+    count = len(entries)
+    env["GIT_CONFIG_COUNT"] = str(count)
+    for i, (k, v) in enumerate(entries):
+        env[f"GIT_CONFIG_KEY_{i}"] = k
+        env[f"GIT_CONFIG_VALUE_{i}"] = v
+    return env, binds
+
+
 def _bwrap_supports_rlimits(bwrap_path: str) -> bool:
     """Some bwrap builds are compiled without rlimit options — probe once."""
     import subprocess
@@ -118,9 +218,19 @@ class LinuxSandboxBackend:
                 # unshare-all removed network namespace; allow loopback only via
                 # --share-net when explicitly required by the tool.
                 argv += ["--share-net"]
-            argv += ["/bin/sh", "-lc", command]
+            gh_env, gh_binds = _github_support(command)
+            for src, dst in gh_binds:
+                argv += ["--ro-bind", src, dst]
             env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
                    "HOME": ws, "LANG": "C.UTF-8", "TERM": "dumb"}
+            if gh_env.get("GIT_CONFIG_COUNT"):
+                gh_env["PATH"] = _GH_SANDBOX_DIR + ":" + env["PATH"]
+            env.update(gh_env)
+            # bwrap --clearenv wipes the child env — pass every variable
+            # explicitly with --setenv (must come BEFORE the /bin/sh command)
+            for k, v in env.items():
+                argv += ["--setenv", k, v]
+            argv += ["/bin/sh", "-lc", command]
             return SandboxResult("bwrap", argv, env, [ws])
         # Degraded: no bubblewrap. Refuse system-modifying commands outright.
         for pat in SYSTEM_MODIFYING:
@@ -131,6 +241,8 @@ class LinuxSandboxBackend:
                                             "available (install bubblewrap for full isolation)")
         argv = ["/bin/sh", "-lc", command]
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C.UTF-8", "TERM": "dumb"}
+        gh_env, _ = _github_support(command)
+        env.update(gh_env)
         return SandboxResult("degraded", argv, env, [ws])
 
 
