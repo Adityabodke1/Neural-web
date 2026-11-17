@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+neural_web.db
+exports/*
+!exports/.gitkeep
+node_modules/
+frontend/dist/
+.vite/
