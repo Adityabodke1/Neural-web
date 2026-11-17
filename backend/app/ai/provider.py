@@ -183,8 +183,10 @@ class Provider:
                     self._rate_limited_until[m["id"]] = \
                         asyncio.get_event_loop().time() + wait
                     delay = 2.0 if attempt == 0 else 4.0
-                    log.warning("rate limited on %s (attempt %d), cooldown %.1fs, backoff %.1fs then failover",
-                                m["id"], attempt + 1, wait, delay)
+                    # failover mechanics — quiet: per-model errors are recorded
+                    # in the usage log, not spammed to the user
+                    log.debug("rate limited on %s (attempt %d), cooldown %.1fs, backoff %.1fs then failover",
+                              m["id"], attempt + 1, wait, delay)
                     repo.log_usage(session_id=session_id, model=m["model_id"],
                                    request_type=request_type, prompt_tokens=0,
                                    completion_tokens=0, latency_ms=0, ok=False,
@@ -203,6 +205,13 @@ class Provider:
                         self._rate_limited_until[m["id"]] = \
                             asyncio.get_event_loop().time() + \
                             (self._retry_after(err) or 25.0)
+                    if "402" in err or "more credits" in err.lower() \
+                            or "insufficient" in err.lower():
+                        # account out of credits for this model — excluded for a
+                        # long while so it stops burning an attempt per request
+                        self._rate_limited_until[m["id"]] = \
+                            asyncio.get_event_loop().time() + 3600.0
+                        log.debug("model %s has no credits; excluded 1h", m["id"])
                     if tools and ("tool calling" in err.lower()
                                   or "tool_use" in err.lower()
                                   or "function calling" in err.lower()):
@@ -210,13 +219,15 @@ class Provider:
                         # offering it for tool requests for a long while
                         self._rate_limited_until[m["id"]] = \
                             asyncio.get_event_loop().time() + 3600.0
-                        log.warning("model %s does not support tool calling; "
-                                    "excluded from tool requests for 1h", m["id"])
+                        log.debug("model %s does not support tool calling; "
+                                  "excluded from tool requests for 1h", m["id"])
                     repo.log_usage(session_id=session_id, model=m["model_id"],
                                    request_type=request_type, prompt_tokens=0,
                                    completion_tokens=0, latency_ms=0, ok=False,
                                    error=err[:500], provider=m["provider_id"])
-                    log.warning("AI error on %s: %s", m["id"], err[:300])
+                    # quiet failover detail: full error already in the usage DB;
+                    # the user only sees output if EVERY model fails (AIError)
+                    log.debug("AI failover: %s → %s", m["id"], err[:200])
                     if transient and attempt < settings.AI_MAX_RETRIES:
                         await asyncio.sleep(min(_BACKOFF_MAX, _BACKOFF_BASE * (2 ** attempt)))
                         attempt += 1
@@ -230,8 +241,8 @@ class Provider:
             earliest = min(self._rate_limited_until.get(m["id"], 0) for m in candidates)
             wait_s = earliest - now
             if 0 < wait_s <= 45.0:
-                log.warning("all models rate limited; waiting %.1fs for the shortest cooldown",
-                            wait_s)
+                log.debug("all models rate limited; waiting %.1fs for the shortest cooldown",
+                          wait_s)
                 await asyncio.sleep(wait_s + 0.5)
                 return await self._complete(
                     messages, request_type=request_type, session_id=session_id,
