@@ -150,6 +150,113 @@ Environment variables (all optional except one AI key):
 
 ---
 
+## Usage guide — step by step
+
+### 1. Get a free API key (one is enough to start)
+
+Create a free key at [console.groq.com/keys](https://console.groq.com/keys) (Groq's
+free tier is genuinely zero-cost). Then either put it in `.env` (`GROQ_API_KEY=…`)
+or add it at runtime — keys are stored in the OS keyring when available, DB with
+a plaintext warning otherwise, and are **never** printed or exposed:
+
+```bash
+neural-web api add groq        # paste the key (hidden) → auto-tested → models imported
+```
+
+The flow tests the key for real, imports the provider's model catalog
+automatically, and activates a working model — no manual model setup needed.
+
+### 2. Chat with the AI (Claude Code style)
+
+```bash
+neural-web chat        # type anything — answers like ChatGPT
+```
+
+Inside chat (and inside the interactive shell):
+
+| Command | What it does |
+|---|---|
+| (just type a question) | plain answer, no commands involved |
+| `/model` | list configured models, pick one (fuzzy match works) |
+| `/model add <provider> <model-id>` | add a model to the routing chain |
+| `/api` | key status (masked) · `/api <provider>` add a key |
+| `/workspace` | list authorized agent workspaces |
+| `/workspace ~/Projects/mysite` | create + authorize a workspace and select it |
+| `/clear` | reset conversation memory |
+| `exit` | leave |
+
+The same works from the interactive shell (`neural-web` with no arguments) —
+plain questions get plain answers, and slash commands work there too.
+
+### 3. Show only FREE models
+
+```bash
+neural-web models --free
+```
+
+Lists **only models with verified zero-cost API usage**: OpenRouter models whose
+published pricing is `0/0`, plus the catalogs of providers with documented free
+tiers (Groq, Gemini, Cerebras). Paid models, trial-credit models and anything
+with unknown pricing are **hidden**. Refreshed live from provider APIs on every
+call. Badges in the dashboard show the same FREE status.
+
+### 4. Autonomous coding agent (the Claude Code part)
+
+Authorize a folder once — that folder becomes the agent's sandbox boundary:
+
+```bash
+neural-web permissions --add-folder ~/Projects/mywebsite
+```
+
+Then either run it directly:
+
+```bash
+neural-web coding "build a responsive portfolio site with dark mode" \
+    --workspace ~/Projects/mywebsite
+```
+
+…or just **say it in chat** — build/fix/save sentences are routed to the real
+agent automatically:
+
+```text
+you ❯ build a simple responsive website with HTML and CSS
+agent workspace: /home/you/Projects/mywebsite
+⏺ inspecting workspace
+⏺ Writing index.html
+⏺ Writing styles.css
+⏺ Running python3 -m http.server 8080   … verifies the page actually loads
+⏺ complete
+```
+
+What the agent really does (no simulation):
+- **Real filesystem tools** — read, write, edit (targeted, preserves the rest of
+  the file), create/delete/move/copy, list, search with content grep
+- **Real terminal** — `pip`/`npm install`, builds, tests, dev servers; captures
+  stdout/stderr/exit codes; long-running servers are startable and stoppable
+- **Sandbox** — every command runs inside bubblewrap with only the authorized
+  folder writable, private `/tmp`, secrets filtered from the environment;
+  path traversal and symlink escapes are rejected
+- **Self-correcting loop** — inspects → plans → acts → observes → fixes →
+  verifies → reports; asks only for destructive/outside-workspace operations
+
+Safety: never authorizes anything beyond its folder; `sudo` and system paths are
+blocked; every operation is written to an audit log (`neural-web permissions --audit 20`).
+
+### 5. Research, scrape, extract
+
+See the commands listed above (`research`, `scrape`, `crawl`, `extract`,
+`compare`, `monitor`, `sources`, `explain-source`, `export`, `ask`).
+Every extracted record carries per-field provenance you can inspect.
+
+### 6. Watch your costs
+
+```bash
+neural-web usage --all     # real token counts per model, quota bars
+neural-web status          # models, providers, sandbox state, history
+```
+
+---
+
 ## Security model (zero trust)
 
 ```
