@@ -13,6 +13,7 @@ from rich.table import Table
 from ..app.database import repository as repo
 from ..app.database.database import init_db
 from .banner import OWNER, VERSION, show_banner, show_header, status_line
+from .ui.spin import thinking_status
 from .commands import chat_cmd, computer_cmd, data_cmd, models_cmd, research_cmd
 from .theme import THEME
 
@@ -161,7 +162,7 @@ def interactive():
             chat_msgs.append({"role": "user", "content": line})
             if len(chat_msgs) > 26:
                 chat_msgs = [chat_msgs[0]] + chat_msgs[-22:]
-            with console.status("[accent]thinking…[/]"):
+            with thinking_status(console):
                 try:
                     out = chat_cmd.ai_reply(chat_msgs)
                 except Exception as e:

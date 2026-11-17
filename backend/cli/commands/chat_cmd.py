@@ -7,6 +7,7 @@ import typer
 from rich.markdown import Markdown
 
 from ..banner import show_banner
+from ..ui.spin import thinking_status
 from ..theme import console
 
 app = typer.Typer(help="Chat directly with the AI (no commands)",
@@ -231,7 +232,7 @@ def chat() -> None:
         msgs.append({"role": "user", "content": line})
         if len(msgs) > 26:  # keep context bounded, always keep system prompt
             msgs = [msgs[0]] + msgs[-22:]
-        with console.status("[accent]thinking…[/]"):
+        with thinking_status(console):
             try:
                 out = ai_reply(msgs)
             except Exception as e:
