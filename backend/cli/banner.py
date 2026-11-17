@@ -40,12 +40,20 @@ _LETTERS: dict[str, list[str]] = {
 
 
 def _build_logo_rows() -> list[str]:
-    w1_rows = ["".join(seg) for seg in zip(*([r + " " for r in _LETTERS[c]]
-                                             for c in "NEURAL"))]
-    w2_rows = ["".join(seg) for seg in zip(*([r + " " for r in _LETTERS[c]]
-                                             for c in "WEB"))]
+    """Rows of the logo. Every letter's rows are normalized to the letter's
+    max width BEFORE joining — otherwise trailing spaces differ per row and
+    the second word starts at a different column on each row (the staggered
+    'overlap' garble)."""
+    def norm(ch: str) -> list[str]:
+        rows = _LETTERS[ch]
+        w = max(len(r) for r in rows)
+        # +1 = kerning space so neighbouring letters (R/B look alike) separate
+        return [r.ljust(w + 1) for r in rows]
+
+    w1_rows = ["".join(seg) for seg in zip(*(norm(c) for c in "NEURAL"))]
+    w2_rows = ["".join(seg) for seg in zip(*(norm(c) for c in "WEB"))]
     # 1-space letter kerning (R vs B blur together when jammed) + word gap
-    return [" " + a.rstrip() + "   " + b.rstrip() for a, b in zip(w1_rows, w2_rows)]
+    return [" " + a + "   " + b for a, b in zip(w1_rows, w2_rows)]
 
 
 LOGO_ROWS = _build_logo_rows()
