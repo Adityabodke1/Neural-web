@@ -98,7 +98,7 @@ cd frontend && npm run dev
 ### Example
 
 ```bash
-neural-web research "What is the capital of Australia and name one major landmark there" \
+ research "What is the capital of Australia and name one major landmark there" \
     --depth quick --max-pages 3
 ```
 
@@ -205,13 +205,13 @@ call. Badges in the dashboard show the same FREE status.
 Authorize a folder once — that folder becomes the agent's sandbox boundary:
 
 ```bash
-neural-web permissions --add-folder ~/Projects/mywebsite
+ permissions --add-folder ~/Projects/mywebsite
 ```
 
 Then either run it directly:
 
 ```bash
-neural-web coding "build a responsive portfolio site with dark mode" \
+ coding "build a responsive portfolio site with dark mode" \
     --workspace ~/Projects/mywebsite
 ```
 
