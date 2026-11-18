@@ -273,12 +273,23 @@ neural-web voice --list-voices          # hear previews, list presets
 neural-web voice --voice auto           # best available (default)
 neural-web voice --voice gemini-leda    # Gemini native girl voice
 neural-web voice --voice neerja         # en-IN expressive girl
+neural-web voice --hindi                # हिंदी mode — Hindi STT, Hindi replies, Hindi voice
 neural-web voice --language en-IN       # STT accent (saved)
 ```
 
+**Hindi mode**: speak Hindi, she replies in natural conversational Hindi
+(Devanagari) with the `swara` Hindi girl voice, and understands Hindi exit
+words too ("बाय", "अलविदा", "बंद करो"). Hinglish works everywhere.
+
+**Want the voice to sound like Gemini Live?** Add a Gemini key once —
+`neural-web api add gemini` — she automatically upgrades to Gemini's
+native audio voice (the most human-sounding available, with real emotion);
+it speaks Hindi too. Without it she uses the free Edge neural voices.
+
 Speech-to-text uses the free Google Web Speech API — no API key needed.
 Recordings are auto-trimmed (leading/trailing silence cut), normalized for
-reliable recognition, and auto-stop when you finish speaking.
+reliable recognition, auto-stop when you finish speaking, and retry in the
+other language (Hindi↔English) if the first pass hears nothing.
 
 ### 6. Research, scrape, extract
 

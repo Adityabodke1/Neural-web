@@ -40,7 +40,8 @@ def is_exit_phrase(text: str) -> bool:
     if _EXIT_RE is None:
         _EXIT_RE = re.compile(
             r"^\s*(bye|bye bye|goodbye|good bye|good night|goodnight|see you|"
-            r"see ya|alvida|chalo bye|exit|quit|close voice mode)[\s!.…]*$",
+            r"see ya|alvida|chalo bye|exit|quit|close voice mode|band karo|"
+            r"बंद करो|बाय|अलविदा|अब छोड़ो|so jao|शुभ रात्रि)[\s!.…]*$",
             re.I)
     return bool(_EXIT_RE.match(text or ""))
 
@@ -54,6 +55,7 @@ def voice(
     voice_name: str = typer.Option("", "--voice", "-v", help="Voice preset: auto, gemini-leda, neerja, ava, emma, sonia, swara"),
     language: str = typer.Option("", "--language", help="STT language (e.g. en-IN, en-US, hi-IN)"),
     device: str = typer.Option("", "--device", "-d", help="ALSA capture device (default: auto)"),
+    hindi: bool = typer.Option(False, "--hindi", help="Hindi mode: Hindi STT + Hindi voice + she replies in Hindi"),
     max_steps: int = typer.Option(12, "--max-steps"),
     model: str = typer.Option("auto", "--model", "-m"),
     workspace: str = typer.Option("", "--workspace", "-w"),
@@ -84,6 +86,14 @@ def voice(
         prefs["language"] = language
         speech.save_prefs(prefs)
         console.print(f"[ok]STT language saved: {language}[/ok]")
+    if hindi:
+        prefs = speech.load_prefs()
+        prefs["language"] = "hi-IN"
+        prefs["voice"] = "auto"          # → Swara (Hindi girl) / Gemini Hindi
+        speech.save_prefs(prefs)
+        language = "hi-IN"
+        console.print("[ok]हिंदी mode on — बोलो, मैं सुन रही हूँ (Hindi STT + "
+                      "Hindi voice, saved)[/ok]")
 
     one_shot = " ".join(command or []).strip()
     # one-shot when: --once, or --text given (headless/testing), else she
@@ -120,6 +130,11 @@ def voice(
                 continue
             console.print("[muted]transcribing…[/muted]")
             user_cmd = speech.transcribe_wav(wav, language=language)
+            if not user_cmd:
+                # fallback: try the other language before giving up
+                saved = (language or speech.load_prefs().get("language") or "en-IN")
+                alt = "en-IN" if saved.startswith("hi") else "hi-IN"
+                user_cmd = speech.transcribe_wav(wav, language=alt)
             try:
                 Path(wav).unlink()
             except OSError:
@@ -138,8 +153,13 @@ def voice(
         if conversational and is_exit_phrase(user_cmd):
             console.print("[muted]you said bye — leaving voice mode[/muted]")
             if not no_tts:
-                speech.speak("Okay bye! I had fun with you. Call me anytime, "
-                             "I'll be right here.")
+                if (language or speech.load_prefs().get("language") or
+                        "").startswith("hi"):
+                    speech.speak("ठीक है बाय! तुमसे बात करके मज़ा आया। "
+                                 "फिर बुलाना, मैं यहीं हूँ।")
+                else:
+                    speech.speak("Okay bye! I had fun with you. Call me "
+                                 "anytime, I'll be right here.")
             console.print("[cyan]👋 voice mode closed[/cyan]")
             return
 

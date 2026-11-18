@@ -86,11 +86,41 @@ def test_agent_voice_prompt_has_persona_slot():
 def test_exit_phrases():
     from backend.cli.commands.voice_cmd import is_exit_phrase
     for phrase in ("bye", "Bye!", "bye bye", "goodbye", "good night",
-                   "alvida", "chalo bye", "exit", "see you"):
+                   "alvida", "chalo bye", "exit", "see you",
+                   "बाय", "अलविदा", "बंद करो", "शुभ रात्रि"):
         assert is_exit_phrase(phrase), phrase
     for not_exit in ("search bye products on amazon", "type bye in a file",
-                     "open brave and search earbuds", "bye bye birdie toy"):
+                     "open brave and search earbuds", "bye bye birdie toy",
+                     "बाय का वीडियो खोलो"):
         assert not is_exit_phrase(not_exit), not_exit
+
+
+def test_hindi_language_selects_swara_voice(tmp_path, monkeypatch):
+    from backend.app.voice import speech
+    monkeypatch.setattr(speech, "PREFS_PATH", tmp_path / "voice.json")
+    monkeypatch.setattr(speech, "_gemini_key", lambda: "")
+    speech.save_prefs({"language": "hi-IN", "voice": "auto"})
+    v, key = speech.resolve_voice("auto")
+    assert key == "auto-edge" and v == "hi-IN-SwaraNeural"
+    # english again → neerja
+    speech.save_prefs({"language": "en-IN", "voice": "auto"})
+    v, key = speech.resolve_voice("auto")
+    assert v == "en-IN-NeerjaExpressiveNeural"
+
+
+def test_persona_matches_user_language(mem_home):
+    c = mem_home
+    p = c.persona_prompt()
+    assert "Hindi" in p and "Hinglish" in p
+    assert "Devanagari" in p or "conversational Hindi" in p
+
+
+def test_heuristic_facts_language_agnostic():
+    from backend.app.voice.companion import _heuristic_facts
+    assert _heuristic_facts("I love cricket and bikes") == \
+        ["likes cricket and bikes"]
+    assert any("physics exam" in f for f in
+               _heuristic_facts("I have a physics exam tomorrow"))
 
 
 # ------------------------------------------------------------- gemini tts

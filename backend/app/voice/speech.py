@@ -68,24 +68,25 @@ def _gemini_key() -> str:
 _MOOD_RULES: list[tuple[str, str, str, str]] = [
     # (regex on lowercase text, rate, pitch, label)
     (r"\b(great|awesome|amazing|found it|excellent|perfect|congratulations|"
-     r"successfully|good news|love)\b|!", "-3%", "+6Hz", "happy"),
+     r"successfully|good news|love)\b|!", "-3%", "+3Hz", "happy"),
     (r"\b(sorry|unfortunately|apologize|couldn'?t|could not|unable|failed|"
-     r"my apologies|afraid)\b", "-7%", "-3Hz", "apologetic"),
+     r"my apologies|afraid)\b", "-6%", "-2Hz", "apologetic"),
     (r"\?\s*$|\b(should i|shall i|want me|shall we|would you like)\b",
-     "-1%", "+4Hz", "asking"),
-    (r"\b(important|careful|warning|note that|be aware)\b", "-5%", "+1Hz",
+     "-1%", "+2Hz", "asking"),
+    (r"\b(important|careful|warning|note that|be aware)\b", "-4%", "+1Hz",
      "serious"),
 ]
 
 
 def detect_mood(text: str) -> tuple[str, str, str]:
-    """(rate, pitch, mood label) for a reply — gives the voice real emotion."""
+    """(rate, pitch, mood label) for a reply — gives the voice real emotion.
+    Shaping is deliberately gentle: heavy pitch shifts sound synthetic."""
     t = (text or "").lower()
     for pat, rate, pitch, label in _MOOD_RULES:
         import re
         if re.search(pat, t):
             return rate, pitch, label
-    return "-2%", "+2Hz", "neutral"      # warm conversational default
+    return "-1%", "+0Hz", "neutral"      # natural conversational default
 
 
 def load_prefs() -> dict:
@@ -103,16 +104,26 @@ def save_prefs(prefs: dict) -> None:
         pass
 
 
+def _edge_default_for_lang() -> str:
+    """Edge voice that matches the saved STT language (hi → Swara)."""
+    lang = (load_prefs().get("language") or DEFAULT_LANGUAGE)
+    return "swara" if lang.lower().startswith("hi") else DEFAULT_EDGE_VOICE
+
+
 def resolve_voice(voice_key: str = "") -> tuple[str, str]:
     """(engine voice name, preset key). 'auto' picks the best available:
     Gemini native voice when a Gemini key exists, else the expressive
-    edge-tts voice. Falls back to the saved/default preset."""
+    edge-tts voice matching your language. Falls back to saved/default."""
     prefs = load_prefs()
     key = (voice_key or prefs.get("voice") or DEFAULT_VOICE).strip().lower()
     if key == "auto":
         if _gemini_key():
             return GEMINI_VOICES["leda"], "auto-gemini"
-        return VOICES[DEFAULT_EDGE_VOICE][0], "auto-edge"
+        edge_key = _edge_default_for_lang()
+        return VOICES[edge_key][0], f"auto-edge"
+    if key == "auto-edge":
+        edge_key = _edge_default_for_lang()
+        return VOICES[edge_key][0], "auto-edge"
     if key in GEMINI_VOICES:                      # explicit gemini preset
         return GEMINI_VOICES[key], f"gemini-{key}"
     if key.startswith("gemini-"):                 # gemini-leda style keys
@@ -125,7 +136,7 @@ def resolve_voice(voice_key: str = "") -> tuple[str, str]:
                 return v, name
         key = prefs.get("voice") or DEFAULT_VOICE
         if key in ("auto", "auto-gemini", "auto-edge") and key not in VOICES:
-            key = DEFAULT_EDGE_VOICE
+            key = _edge_default_for_lang()
         if key not in VOICES:
             key = DEFAULT_EDGE_VOICE
     return VOICES[key][0], key
