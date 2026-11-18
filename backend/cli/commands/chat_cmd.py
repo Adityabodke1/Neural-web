@@ -189,6 +189,19 @@ def _slash(line: str, msgs: list[dict]) -> tuple[bool, list[dict]]:
     if cmd == "workspace":
         _workspace_slash(args)
         return True, msgs
+    if cmd == "voice":
+        # /voice "command" — run the agentic voice command as text
+        # /voice — start the real mic loop
+        from .voice_cmd import voice, VOICE_WORKSPACE
+        from ...app.computer import permissions
+        text_cmd = " ".join(args[1:]).strip().strip('"')
+        if text_cmd:
+            permissions.authorize_folder(str(VOICE_WORKSPACE))
+            msgs_snapshot = msgs
+            voice(command=[text_cmd], text=True)
+            return True, msgs_snapshot
+        voice()
+        return True, msgs
     if cmd in ("clear", "reset"):
         console.print("[muted]memory cleared[/muted]\n")
         return True, msgs[:1]
@@ -198,6 +211,7 @@ def _slash(line: str, msgs: list[dict]) -> tuple[bool, list[dict]]:
                       "/api — key status · /api <provider> — paste a key, models "
                       "import automatically · /workspace — agent workspaces · "
                       "/workspace <path> — select (created+authorized if missing) · "
+                      "/voice \"command\" — act on your computer by voice or text · "
                       "/clear — reset · /help[/muted]\n")
         return True, msgs
     console.print(f"[muted]unknown /{cmd} — try /help[/muted]\n")

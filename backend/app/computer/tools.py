@@ -115,6 +115,27 @@ TOOLS = [
     {"name": "git_diff", "level": 1,
      "description": "Show current uncommitted changes in the workspace.",
      "parameters": _obj({}, [])},
+    # ---------------- computer use (voice mode) ----------------
+    {"name": "launch_app", "level": 2,
+     "description": "Open a desktop application on the user's computer so they "
+                    "can SEE it (brave, chrome, firefox, files, calculator, "
+                    "code, terminal, settings, vlc...). Optional url/args, e.g. "
+                    "open brave with a website. Whitelisted only.",
+     "parameters": _obj({"app": {"type": "string"},
+                         "args": {"type": "array", "items": {"type": "string"}}},
+                        ["app"])},
+    {"name": "web_query", "level": 1,
+     "description": "Search the web (Bing/DuckDuckGo/Wikipedia). Returns titles, "
+                    "urls and snippets. Use several focused queries.",
+     "parameters": _obj({"queries": {"type": "array", "items": {"type": "string"}},
+                         "max_results_per_query": {"type": "integer"}},
+                        ["queries"])},
+    {"name": "scrape_url", "level": 1,
+     "description": "Fetch a web page and extract its readable text "
+                    "(optionally JS-rendered with use_js=true). Use after "
+                    "web_query to read a specific product/page.",
+     "parameters": _obj({"url": {"type": "string"},
+                         "use_js": {"type": "boolean"}}, ["url"])},
 ]
 
 
@@ -211,6 +232,30 @@ async def _execute(name: str, args: dict, ctx: ToolContext) -> dict:
         return workspace.checkpoint(ws, args.get("message", "NEURAL WEB checkpoint"))
     if name == "git_diff":
         return workspace.git_diff(ws)
+    if name == "launch_app":
+        from . import app_launcher
+        return app_launcher.launch(_req("app"), args.get("args") or [], sid)
+    if name == "web_query":
+        queries = args.get("queries") or []
+        if isinstance(queries, str):        # models sometimes send one string
+            queries = [queries]
+        queries = [str(q).strip() for q in queries if str(q).strip()][:6]
+        if not queries:
+            return {"error": "no_queries"}
+        from ..search.search_manager import SearchManager
+        results = await SearchManager().search(
+            queries, max_results_per_query=min(int(args.get(
+                "max_results_per_query", 6)), 10))
+        return {"results": [{"title": r.title, "url": r.url,
+                             "snippet": r.snippet} for r in results]}
+    if name == "scrape_url":
+        from ..scraping.engine import scrape_engine
+        pc = await scrape_engine.scrape(_req("url"), session_id=sid,
+                                        use_js=bool(args.get("use_js")))
+        text = pc.clean_text or pc.raw_text or ""
+        return {"url": pc.url, "status": pc.status, "title": pc.title,
+                "text": text[:12000], "word_count": pc.word_count,
+                "links": pc.links[:40]}
     return {"error": f"unknown tool: {name}"}
 
 

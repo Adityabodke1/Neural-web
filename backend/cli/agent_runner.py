@@ -28,7 +28,8 @@ def pick_workspace(hint: str = "") -> str | None:
 
 
 def stream_agent_run(prompt: str, workspace_path: str,
-                     max_steps: int = 40, model: str = "auto") -> dict:
+                     max_steps: int = 40, model: str = "auto",
+                     mode: str = "code") -> dict:
     """Start a coding task and stream live events until it finishes.
 
     Chatty output (Claude-Code style): narration lines, tool activity, then a
@@ -38,7 +39,7 @@ def stream_agent_run(prompt: str, workspace_path: str,
     from ..app.computer import coding_agent
     async def run() -> tuple[dict, dict]:
         res = await coding_agent.start_coding_task(prompt, workspace_path,
-                                                   max_steps, model)
+                                                   max_steps, model, mode)
         tm = await registry.get(f"code-{res['task_id']}")
         seen = 0
         while True:

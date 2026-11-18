@@ -242,13 +242,28 @@ What the agent really does (no simulation):
 Safety: never authorizes anything beyond its folder; `sudo` and system paths are
 blocked; every operation is written to an audit log (`neural-web permissions --audit 20`).
 
-### 5. Research, scrape, extract
+### 5. Agentic voice mode — speak, and the agent acts on your computer
+
+```bash
+neural-web voice                # speak a command (Enter starts, Enter stops)
+neural-web voice --loop         # keep listening until Ctrl+C
+neural-web voice --text "open brave and search wireless earbuds on amazon and give the lowest price in amazon"
+```
+
+You can also use `/voice "command"` inside `chat`. The voice agent really
+operates the computer: it **opens desktop apps on screen** (Brave, Files,
+Calculator… — whitelist-only, audited), searches the web, scrapes pages,
+extracts the data (e.g. the lowest Amazon price) and **speaks the answer
+back** (via `spd-say`, when installed). Speech-to-text uses the free Google
+Web Speech API — no API key needed.
+
+### 6. Research, scrape, extract
 
 See the commands listed above (`research`, `scrape`, `crawl`, `extract`,
 `compare`, `monitor`, `sources`, `explain-source`, `export`, `ask`).
 Every extracted record carries per-field provenance you can inspect.
 
-### 6. Watch your costs
+### 7. Watch your costs
 
 ```bash
 neural-web usage --all     # real token counts per model, quota bars

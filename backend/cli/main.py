@@ -14,7 +14,7 @@ from ..app.database import repository as repo
 from ..app.database.database import init_db
 from .banner import OWNER, VERSION, show_banner, show_header, status_line
 from .ui.spin import thinking_status
-from .commands import chat_cmd, computer_cmd, data_cmd, models_cmd, research_cmd
+from .commands import chat_cmd, computer_cmd, data_cmd, models_cmd, research_cmd, voice_cmd
 from .theme import THEME
 
 console = Console(theme=THEME)
@@ -52,6 +52,7 @@ for fn, name, helptext in [
     (computer_cmd.permissions_cmd, "permissions", "Folder authorization & audit"),
     (computer_cmd.approve, "approve", "Approve a pending level-3 operation"),
     (computer_cmd.coding, "coding", "Autonomous coding agent"),
+    (voice_cmd.voice, "voice", "Agentic voice mode — speak a command, the agent acts on your computer"),
     (computer_cmd.clear_cache, "clear-cache", "Clear scrape caches"),
 ]:
     app.command(name=name, help=helptext)(fn)
@@ -101,7 +102,7 @@ def interactive():
                 "sources", "explain-source", "history", "search-memory", "export",
                 "ask", "chat", "api", "providers", "models", "model", "usage",
                 "benchmarks", "config", "permissions", "approve", "coding",
-                "clear-cache", "status", "exit", "quit", "help"]
+                "voice", "clear-cache", "status", "exit", "quit", "help"]
     completer = WordCompleter(commands, sentence=True)
     hist_file = Path.home() / ".neural_web_history"
     session = PromptSession(history=FileHistory(str(hist_file)), completer=completer)
@@ -142,6 +143,7 @@ def interactive():
             t.add_row("benchmarks --run provider/model", "measure model capabilities")
             t.add_row("permissions --add-folder PATH", "authorize folders")
             t.add_row("coding \"task\" --workspace PATH", "autonomous coding agent")
+            t.add_row("voice \"command\" / voice --loop", "agentic voice mode — speak, agent acts")
             t.add_row("config --emergency-stop", "kill all agents & subsystems")
             console.print(t)
             continue

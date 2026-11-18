@@ -53,16 +53,58 @@ HOW TO WORK:
 
 STEP BUDGET: {max_steps} steps. Use them efficiently."""
 
+VOICE_COMPUTER_SYSTEM = """You are the NEURAL WEB voice agent running on {os}.
+The user spoke a command out loud; it was transcribed to text. ACT on their
+computer for real — like Claude Code or Antigravity, but driven by voice.
+
+WORKSPACE (scratch space you may use): {workspace}
+VOICE COMMAND: {prompt}
+
+TOOLS YOU HAVE FOR COMPUTER USE:
+- launch_app(app, args?) — open a desktop application ON SCREEN so the user
+  can see it: brave, chrome, firefox, files, calculator, code, terminal,
+  settings, vlc, libreoffice... e.g. launch_app(app="brave") or
+  launch_app(app="brave", args=["https://www.amazon.in"]). The window opens
+  on the user's real desktop (this runs OUTSIDE the sandbox, whitelist-only).
+- web_query(queries) — search the web (Bing/DuckDuckGo/Wikipedia).
+- scrape_url(url, use_js?) — read a web page's text (use_js=true for
+  JS-heavy pages like Amazon product listings).
+- filesystem/terminal/git tools work as usual inside the workspace.
+
+HOW TO WORK:
+1. Say one short sentence about what you're doing, then act immediately.
+2. When asked to open an app — actually call launch_app so the window appears.
+3. When asked to look something up on the web — use web_query to find the
+   right page, then scrape_url to read it and extract the actual data
+   (prices, names, specs). Report REAL numbers you found, never invented ones.
+4. Example: "open brave and search wireless earbuds on amazon and give the
+   lowest price" → launch brave so the user sees it, web_query for the
+   product on the amazon domain, scrape the most relevant product/search
+   page, extract prices, and answer with the lowest one and its product name.
+5. If a page blocks scraping or data is unclear, say so honestly and give
+   what you found — never fabricate prices or facts.
+6. SAFETY: browsing, searching, reading and launching whitelisted apps are
+   fine. Never purchase, post, log in, change accounts, or delete anything.
+   That needs explicit human approval which voice cannot provide.
+
+FINISH: call finish_task with "summary" written as a SHORT spoken answer
+(2-5 sentences, natural speech, no markdown — it may be read aloud by TTS).
+Include the concrete answer (e.g. the price you found and the product name).
+
+STEP BUDGET: {max_steps} steps. Usually 4-8 steps are enough."""
+
 
 class CodingAgent:
     def __init__(self, task_id: int, prompt: str, workspace_path: str,
-                 tm: TaskManager, max_steps: int = 40, model_spec: str = "auto") -> None:
+                 tm: TaskManager, max_steps: int = 40, model_spec: str = "auto",
+                 mode: str = "code") -> None:
         self.task_id = task_id
         self.prompt = prompt
         self.workspace = workspace_path
         self.tm = tm
         self.max_steps = max_steps
         self.model_spec = model_spec
+        self.mode = mode if mode in ("code", "computer") else "code"
         self.deadline = time.monotonic() + 25 * 60
 
     async def run(self) -> dict:
@@ -82,7 +124,8 @@ class CodingAgent:
             self.tm.event("warning", {"message": f"no git checkpoint: {e}"})
 
         status = workspace.workspace_status(self.workspace)
-        system = COMPUTER_SYSTEM.format(
+        template = COMPUTER_SYSTEM if self.mode == "code" else VOICE_COMPUTER_SYSTEM
+        system = template.format(
             os=permissions.detect_os(), workspace=self.workspace,
             prompt=self.prompt,
             max_steps=self.max_steps,
@@ -292,7 +335,8 @@ class CodingAgent:
 
 
 async def start_coding_task(prompt: str, workspace_path: str,
-                            max_steps: int = 40, model_spec: str = "auto") -> dict:
+                            max_steps: int = 40, model_spec: str = "auto",
+                            mode: str = "code") -> dict:
     from ..database.database import db
     now = repo.utcnow()
     with db() as conn:
@@ -302,7 +346,8 @@ async def start_coding_task(prompt: str, workspace_path: str,
         task_id = int(cur.lastrowid or 0)
     from ..agent.task_manager import registry
     tm = await registry.get(f"code-{task_id}")
-    agent = CodingAgent(task_id, prompt, workspace_path, tm, max_steps, model_spec)
+    agent = CodingAgent(task_id, prompt, workspace_path, tm, max_steps,
+                        model_spec, mode)
     task = asyncio.create_task(agent.run())
     tm._task = task
     return {"task_id": task_id, "progress_session": f"code-{task_id}"}
