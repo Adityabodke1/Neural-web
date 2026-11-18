@@ -36,8 +36,30 @@ VOICES: dict[str, tuple[str, str]] = {
     "sonia": ("en-GB-SoniaNeural", "British English girl"),
     "swara": ("hi-IN-SwaraNeural", "Hindi girl"),
 }
-DEFAULT_VOICE = "neerja"
+DEFAULT_VOICE = "auto"
 DEFAULT_LANGUAGE = "en-IN"      # matches Indian accents far better than en-US
+
+# ---------------------------------------------------- Gemini native TTS
+# Same native-audio models as Gemini Live — by far the most human result.
+# Activated automatically whenever a Gemini key exists (neural-web api add gemini).
+GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
+GEMINI_VOICES: dict[str, str] = {
+    "leda": "Leda",        # youthful, lively girl (default)
+    "kore": "Kore",        # firm, confident
+    "zephyr": "Zephyr",    # bright
+    "aoede": "Aoede",      # breezy, easy-going
+}
+_STYLE_BASE = ("Read this warmly and naturally, like a cheerful close friend "
+               "chatting with her favourite human — relaxed, real, with a "
+               "hint of playful flirt. Not a narrator, not an assistant.")
+
+
+def _gemini_key() -> str:
+    try:
+        from ..providers.secrets_store import get_key
+        return get_key("gemini") or ""
+    except Exception:
+        return ""
 
 # ------------------------------------------------------------ mood/emotion
 # The free edge-tts endpoint takes plain text (no SSML styles), but the
@@ -82,17 +104,34 @@ def save_prefs(prefs: dict) -> None:
 
 
 def resolve_voice(voice_key: str = "") -> tuple[str, str]:
-    """(edge voice name, preset key). Falls back to the saved/default preset."""
+    """(engine voice name, preset key). 'auto' picks the best available:
+    Gemini native voice when a Gemini key exists, else the expressive
+    edge-tts voice. Falls back to the saved/default preset."""
     prefs = load_prefs()
     key = (voice_key or prefs.get("voice") or DEFAULT_VOICE).strip().lower()
+    if key == "auto":
+        if _gemini_key():
+            return GEMINI_VOICES["leda"], "auto-gemini"
+        return VOICES[DEFAULT_EDGE_VOICE][0], "auto-edge"
+    if key in GEMINI_VOICES:                      # explicit gemini preset
+        return GEMINI_VOICES[key], f"gemini-{key}"
+    if key.startswith("gemini-"):                 # gemini-leda style keys
+        sub = key.split("-", 1)[1]
+        if sub in GEMINI_VOICES:
+            return GEMINI_VOICES[sub], key
     if key not in VOICES:
-        for name, (v, _) in VOICES.items():   # allow full voice ids too
+        for name, (v, _) in VOICES.items():       # allow full voice ids too
             if key and key.lower() in v.lower():
                 return v, name
         key = prefs.get("voice") or DEFAULT_VOICE
+        if key in ("auto", "auto-gemini", "auto-edge") and key not in VOICES:
+            key = DEFAULT_EDGE_VOICE
         if key not in VOICES:
-            key = DEFAULT_VOICE
+            key = DEFAULT_EDGE_VOICE
     return VOICES[key][0], key
+
+
+DEFAULT_EDGE_VOICE = "neerja"
 
 
 # ---------------------------------------------------------------- recording
@@ -231,6 +270,44 @@ def transcribe_wav(path: str, language: str = "") -> str:
 
 
 # --------------------------------------------------------------------- TTS
+def _gemini_tts(text: str, wav_out: str, voice: str = "Leda",
+                style: str = "") -> bool:
+    """Gemini native audio TTS (Gemini Live family) → 24 kHz PCM → wav.
+    Returns False when no key or the call fails (fallback continues)."""
+    key = _gemini_key()
+    if not key:
+        return False
+    try:
+        import base64
+        import urllib.request
+        body = {
+            "contents": [{"parts": [{"text": f"{style}\n\n{text}"}]}],
+            "generationConfig": {
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig":
+                                                 {"voiceName": voice}}},
+            },
+        }
+        req = urllib.request.Request(
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{GEMINI_TTS_MODEL}:generateContent",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json",
+                     "x-goog-api-key": key})
+        with urllib.request.urlopen(req, timeout=90) as r:
+            data = json.load(r)
+        pcm = base64.b64decode(
+            data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"])
+        with wave.open(wav_out, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(24000)
+            w.writeframes(pcm)
+        return os.path.getsize(wav_out) > 1000
+    except Exception:
+        return False
+
+
 def _ffmpeg() -> str:
     try:
         import imageio_ffmpeg
@@ -301,14 +378,21 @@ def _spd_say(text: str) -> bool:
 
 
 def speak(text: str, voice_key: str = "", quiet: bool = False) -> dict:
-    """Speak text with a natural, expressive girl voice — the mood of the
-    reply (happy / apologetic / asking / serious / neutral) shapes rate and
-    pitch. Never raises. Returns {'ok': bool, 'voice': ..., 'engine': ...}."""
+    """Speak text with the most human voice available: Gemini native audio
+    (when a Gemini key exists) else expressive edge-tts — shaped by the
+    reply's mood. Never raises. Returns {'ok', 'voice', 'engine', 'mood'}."""
     text = (text or "").strip()
     if not text:
         return {"ok": False, "reason": "empty"}
-    edge_voice, key = resolve_voice(voice_key)
+    voice_name, key = resolve_voice(voice_key)
     rate, pitch, mood = detect_mood(text)
+    style = _STYLE_BASE + f" {mood} mood: " + {
+        "happy": "bright, excited, smiling through the words",
+        "apologetic": "gentle, softer, a bit lower, sincere",
+        "asking": "curious, playful, rising at the end",
+        "serious": "calm, clear, attentive",
+        "neutral": "relaxed and warm",
+    }.get(mood, "relaxed and warm")
     TTS_CACHE.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha1(
         f"{key}|{rate}|{pitch}|{text[:2000]}".encode()).hexdigest()[:16]
@@ -317,12 +401,22 @@ def speak(text: str, voice_key: str = "", quiet: bool = False) -> dict:
     if Path(wav).exists() and Path(wav).stat().st_size > 1000:
         ok = _play_wav(wav)
         if ok:
-            return {"ok": True, "voice": key, "engine": "edge-tts (cached)",
+            return {"ok": True, "voice": key, "engine": "cached",
                     "mood": mood}
 
+    # --- best: Gemini native audio (Gemini Live quality) -------------------
+    if key in ("auto-gemini",) or key.startswith("gemini-"):
+        if _gemini_tts(text, wav, voice=voice_name, style=style):
+            if _play_wav(wav):
+                return {"ok": True, "voice": key, "engine": "gemini-tts",
+                        "mood": mood}
+
+    # --- fallback: edge-tts expressive generation ---------------------------
     with tempfile.TemporaryDirectory() as td:
         mp3 = os.path.join(td, "s.mp3")
         engine = ""
+        edge_voice = voice_name if key in VOICES else \
+            VOICES[DEFAULT_EDGE_VOICE][0]
         if _edge_tts(text, edge_voice, mp3, rate=rate, pitch=pitch):
             engine = "edge-tts"
         elif _gtts(text, os.path.join(td, "g.mp3")):

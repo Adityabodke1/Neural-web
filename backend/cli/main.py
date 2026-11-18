@@ -41,6 +41,7 @@ for fn, name, helptext in [
     (data_cmd.search_memory, "search-memory", "Semantic search over past research"),
     (data_cmd.export, "export", "Export results (json/csv/xlsx)"),
     (data_cmd.ask, "ask", "Chat with your research memory"),
+    (data_cmd.memory, "memory", "What NEURAL WEB remembers about you (memory.txt)"),
     (chat_cmd.chat, "chat", "Talk to the AI directly — type anything, get answers"),
     (models_cmd.model_cmd, "model", "Switch or add the active AI model (simple)"),
     (models_cmd.providers, "providers", "Manage AI providers"),
@@ -102,7 +103,7 @@ def interactive():
                 "sources", "explain-source", "history", "search-memory", "export",
                 "ask", "chat", "api", "providers", "models", "model", "usage",
                 "benchmarks", "config", "permissions", "approve", "coding",
-                "voice", "clear-cache", "status", "exit", "quit", "help"]
+                "voice", "memory", "clear-cache", "status", "exit", "quit", "help"]
     completer = WordCompleter(commands, sentence=True)
     hist_file = Path.home() / ".neural_web_history"
     session = PromptSession(history=FileHistory(str(hist_file)), completer=completer)

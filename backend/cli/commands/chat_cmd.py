@@ -202,6 +202,10 @@ def _slash(line: str, msgs: list[dict]) -> tuple[bool, list[dict]]:
             return True, msgs_snapshot
         voice()
         return True, msgs
+    if cmd == "memory":
+        from .data_cmd import memory as memory_cmd
+        memory_cmd()
+        return True, msgs
     if cmd in ("clear", "reset"):
         console.print("[muted]memory cleared[/muted]\n")
         return True, msgs[:1]

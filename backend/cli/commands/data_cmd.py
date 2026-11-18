@@ -181,3 +181,27 @@ def _ask(q: str, records: list, pages: list, model: str) -> str:
              {"role": "user", "content": f"Question: {q}\n\nExtracted records:\n{recs}\n\nPages:\n{pgs}"}],
             request_type="ask", model_spec=model, max_tokens=2000)
     return asyncio.run(go())
+
+
+def memory(
+    clear: bool = typer.Option(False, "--clear", help="Erase everything she remembers"),
+    forget: str = typer.Option("", "--forget", help="Remove facts containing this word"),
+):
+    """What NEURAL WEB remembers about you (memory.txt)."""
+    from ...app.voice import companion
+    if clear:
+        companion.clear()
+        console.print(f"[ok]memory cleared — {companion.MEMORY_FILE}[/ok]")
+        return
+    if forget:
+        text = companion.load()
+        lines = [l for l in text.splitlines()
+                 if forget.lower() not in l.lower()]
+        companion.MEMORY_FILE.write_text("\n".join(lines) + "\n",
+                                         encoding="utf-8")
+        console.print(f"[ok]forgot everything containing '{forget}'[/ok]")
+        return
+    text = companion.load()
+    console.print(Panel(
+        text or "(nothing yet — talk to her and she'll remember)",
+        title=f"🧠 {companion.MEMORY_FILE}", border_style="cyan"))

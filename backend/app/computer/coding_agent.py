@@ -59,6 +59,7 @@ computer for real — like Claude Code or Antigravity, but driven by voice.
 
 WORKSPACE (scratch space you may use): {workspace}
 VOICE COMMAND: {prompt}
+{persona}
 
 TOOLS YOU HAVE FOR COMPUTER USE:
 - launch_app(app, args?) — open a desktop application ON SCREEN so the user
@@ -97,7 +98,7 @@ STEP BUDGET: {max_steps} steps. Usually 4-8 steps are enough."""
 class CodingAgent:
     def __init__(self, task_id: int, prompt: str, workspace_path: str,
                  tm: TaskManager, max_steps: int = 40, model_spec: str = "auto",
-                 mode: str = "code") -> None:
+                 mode: str = "code", persona: str = "") -> None:
         self.task_id = task_id
         self.prompt = prompt
         self.workspace = workspace_path
@@ -105,6 +106,7 @@ class CodingAgent:
         self.max_steps = max_steps
         self.model_spec = model_spec
         self.mode = mode if mode in ("code", "computer") else "code"
+        self.persona = (persona or "").strip()
         self.deadline = time.monotonic() + 25 * 60
 
     async def run(self) -> dict:
@@ -125,9 +127,12 @@ class CodingAgent:
 
         status = workspace.workspace_status(self.workspace)
         template = COMPUTER_SYSTEM if self.mode == "code" else VOICE_COMPUTER_SYSTEM
+        persona_block = ""
+        if self.mode == "computer" and self.persona:
+            persona_block = "\n" + self.persona + "\n"
         system = template.format(
             os=permissions.detect_os(), workspace=self.workspace,
-            prompt=self.prompt,
+            prompt=self.prompt, persona=persona_block,
             max_steps=self.max_steps,
             status=json.dumps({k: status.get(k) for k in
                                ("name", "os", "languages", "git")}, default=str))
@@ -336,7 +341,7 @@ class CodingAgent:
 
 async def start_coding_task(prompt: str, workspace_path: str,
                             max_steps: int = 40, model_spec: str = "auto",
-                            mode: str = "code") -> dict:
+                            mode: str = "code", persona: str = "") -> dict:
     from ..database.database import db
     now = repo.utcnow()
     with db() as conn:
@@ -347,7 +352,7 @@ async def start_coding_task(prompt: str, workspace_path: str,
     from ..agent.task_manager import registry
     tm = await registry.get(f"code-{task_id}")
     agent = CodingAgent(task_id, prompt, workspace_path, tm, max_steps,
-                        model_spec, mode)
+                        model_spec, mode, persona)
     task = asyncio.create_task(agent.run())
     tm._task = task
     return {"task_id": task_id, "progress_session": f"code-{task_id}"}

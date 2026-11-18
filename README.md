@@ -242,32 +242,43 @@ What the agent really does (no simulation):
 Safety: never authorizes anything beyond its folder; `sudo` and system paths are
 blocked; every operation is written to an audit log (`neural-web permissions --audit 20`).
 
-### 5. Agentic voice mode — speak, and the agent acts on your computer
+### 5. Agentic voice mode — talk to her, she acts on your computer
 
 ```bash
-neural-web voice                # listen (auto-stops when you finish) → acts → replies
-neural-web voice --loop         # keep listening until Ctrl+C
+neural-web voice                # conversation mode: keep talking until you say 'bye'
+neural-web voice --once         # single command, then exit
 neural-web voice --text "open brave and search wireless earbuds on amazon and give the lowest price in amazon"
+neural-web memory               # what she remembers about you (memory.txt)
+neural-web memory --forget exam # make her forget something
 ```
 
-You can also use `/voice "command"` inside `chat`. The voice agent really
-operates the computer: it **opens desktop apps on screen** (Brave, Files,
-Calculator… — whitelist-only, audited), searches the web, scrapes pages,
-extracts the data (e.g. the lowest Amazon price) and **speaks the answer
-back in an expressive, human-sounding girl voice** — Microsoft Edge neural
-voices (free, no key). The reply's *mood* shapes the delivery: happy news is
-bouncier, apologies are softer, questions rise. Pick a voice and it's saved:
+You can also use `/voice` and `/memory` inside `chat`. **She converses**:
+after every reply she listens again — leave only when YOU say **"bye"**
+(or Ctrl+C). She remembers you in a plain human-readable file
+(`~/.neuralweb/memory.txt`): who you are, what you like, exams and plans,
+and what you did together today and yesterday — and her personality
+reflects it: warm, playful, a little flirty, matching your vibe.
+
+The voice agent really operates the computer: it **opens desktop apps on
+screen** (Brave, Files, Calculator… — whitelist-only, audited), searches
+the web, scrapes pages, extracts the data (e.g. the lowest Amazon price)
+and **speaks the answer back in an expressive girl voice**. Voice stack:
+**Gemini native audio** (the Gemini Live family — activates automatically
+when you add a Gemini key with `neural-web api add gemini`), falling back
+to Microsoft Edge neural voices (free, no key). The reply's *mood* shapes
+the delivery: happy news is bouncier, apologies are softer. Pick a voice:
 
 ```bash
 neural-web voice --list-voices          # hear previews, list presets
-neural-web voice --voice neerja         # en-IN expressive girl (default)
-neural-web voice --voice ava            # US multilingual
+neural-web voice --voice auto           # best available (default)
+neural-web voice --voice gemini-leda    # Gemini native girl voice
+neural-web voice --voice neerja         # en-IN expressive girl
 neural-web voice --language en-IN       # STT accent (saved)
 ```
 
 Speech-to-text uses the free Google Web Speech API — no API key needed.
-Recordings are auto-trimmed (leading/trailing silence cut) and normalized
-for reliable recognition.
+Recordings are auto-trimmed (leading/trailing silence cut), normalized for
+reliable recognition, and auto-stop when you finish speaking.
 
 ### 6. Research, scrape, extract
 

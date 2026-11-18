@@ -164,6 +164,24 @@ class Provider:
                         adapter.chat, m["model_id"], messages, temperature,
                         max_tokens, json_mode, tools)
                     usage = result["usage"]
+                    if not (result.get("content") or "").strip() \
+                            and not result.get("tool_calls"):
+                        # Some free models answer HTTP 200 with EMPTY content
+                        # (or reasoning models burn small max_tokens budgets
+                        # before writing anything). Treat as a model failure
+                        # and fail over quietly — the user must never see an
+                        # empty answer while another model can reply.
+                        repo.log_usage(
+                            session_id=session_id, model=m["model_id"],
+                            request_type=request_type,
+                            prompt_tokens=usage["prompt_tokens"],
+                            completion_tokens=usage["completion_tokens"],
+                            latency_ms=result["latency_ms"], ok=False,
+                            error="empty response", provider=m["provider_id"])
+                        last_error = AdapterError(
+                            f"empty response from {m['id']}")
+                        log.debug("empty response from %s → failover", m["id"])
+                        break   # next candidate model
                     repo.log_usage(
                         session_id=session_id, model=m["model_id"], request_type=request_type,
                         prompt_tokens=usage["prompt_tokens"],
