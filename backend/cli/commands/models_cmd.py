@@ -338,6 +338,10 @@ def api_add_flow(provider: str, key: str = "", base_url: str = "") -> bool:
     if provider not in known:
         console.print(f"[err]unknown provider {provider!r} — one of: {', '.join(known)}[/err]")
         return False
+    if provider == "gemini":
+        console.print("[muted]free key: open https://aistudio.google.com/apikey "
+                      "→ 'Create API key' → paste below. Unlocks the Gemini "
+                      "Live-quality voice + Gemini models[/muted]")
     if provider == "custom" and not base_url:
         console.print("[err]custom provider needs a base URL[/err]")
         return False

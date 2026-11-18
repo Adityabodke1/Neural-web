@@ -20,11 +20,14 @@ def test_git_commands_get_identity_and_helper():
              for i in range(int(env["GIT_CONFIG_COUNT"]))}
     assert pairs["user.name"]                    # commit must never fail on identity
     assert "@" in pairs["user.email"]
-    # helper only when the host has a gh login
+    # helper only when the host has a gh login — a PLAIN script helper
+    # (no `!` shell parsing; git runs it directly as [script, get])
     from backend.app.computer.sandbox import _token_file_path
     if sandbox._ensure_host_token_file():
-        assert _token_file_path().split("/")[-1] in pairs["credential.helper"] \
-            or "token" in pairs["credential.helper"]
+        assert pairs["credential.helper"].endswith("git-credential-nw")
+        assert pairs["credential.helper"].startswith("/")   # absolute path
+        assert any("git-credential-nw" in str(b) for b in binds)
+        assert not pairs["credential.helper"].startswith("!")
 
 
 def test_non_git_commands_get_nothing():
@@ -61,17 +64,23 @@ def test_bwrap_setenv_delivers_env_to_child():
 
 
 def test_real_authenticated_push_inside_sandbox():
-    """End-to-end: git init + commit + authenticated push to github.com."""
+    """End-to-end: git init + commit + authenticated push to github.com.
+    Reuses one repo with unique branches — GitHub rate-limits repo CREATION
+    ('too many repositories, too quickly') but not branch pushes."""
     if not sandbox._ensure_host_token_file():
         return  # host has no gh login — skip
     ws = tempfile.mkdtemp(prefix="nw_push_")
     permissions.authorize_folder(ws)
-    repo_name = f"nw-agent-test-{int(time.time()) % 100000}"
+    repo_name = "nw-agent-push-test"
+    branch = f"t{int(time.time()) % 1000000}"
     res = sandbox.get_sandbox().prepare(
-        f"git init -q -b main && echo test > f.txt && git add . && "
-        f"git commit -qm t && gh repo create {repo_name} --public "
-        f"--source . --remote origin --push", ws, need_network=True)
+        f"gh repo create {repo_name} --public >/dev/null 2>&1; "
+        f"git init -q -b {branch} && git remote add origin "
+        f"https://github.com/Adityabodke1/{repo_name}.git && "
+        f"echo test > f.txt && git add . && git commit -qm t && "
+        f"git push -q origin {branch} && echo PUSHED:{branch}",
+        ws, need_network=True)
     p = subprocess.run(res.argv, capture_output=True, text=True,
-                       env=res.env, timeout=90)
+                       env=res.env, timeout=120)
     assert p.returncode == 0, p.stderr or p.stdout
-    assert repo_name in p.stdout
+    assert f"PUSHED:{branch}" in p.stdout

@@ -13,11 +13,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import select
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
@@ -332,8 +334,10 @@ def _convert(mp3: str, wav: str) -> bool:
     if not ff:
         return False
     try:
+        # resample to 48 kHz stereo — many HDA sound chips sound flat and
+        # metallic playing 24 kHz mono directly; this removes that artifact
         p = subprocess.run([ff, "-y", "-loglevel", "error", "-i", mp3,
-                            "-ar", "24000", "-ac", "1", wav],
+                            "-ar", "48000", "-ac", "2", wav],
                            capture_output=True, timeout=60)
         return p.returncode == 0 and os.path.getsize(wav) > 1000
     except Exception:
@@ -363,85 +367,312 @@ def _gtts(text: str, mp3: str, lang_hint: str = "en") -> bool:
         return False
 
 
-def _play_wav(wav: str) -> bool:
-    for player in ("paplay", "aplay"):
-        binp = _which(player)
-        if binp:
-            try:
-                p = subprocess.run([binp, "-q", wav], capture_output=True,
-                                   timeout=120)
-                return p.returncode == 0
-            except Exception:
-                continue
-    return False
+# ---------------------------------------------------------------- player
+class _Player:
+    """Owns THE one active playback process: no overlapping audio, and
+    barge-in (user starts talking) stops it immediately."""
+
+    def __init__(self) -> None:
+        self._proc: subprocess.Popen | None = None
+        self._lock = threading.Lock()
+        self.interrupted = False
+
+    def stop(self) -> None:
+        with self._lock:
+            self.interrupted = True
+            p, self._proc = self._proc, None
+            if p is not None and p.poll() is None:
+                try:
+                    p.terminate()
+                    p.wait(timeout=2)
+                except Exception:
+                    try:
+                        p.kill()
+                    except Exception:
+                        pass
+
+    def play(self, wav: str, timeout: float = 300,
+             interruptible: bool = True) -> bool:
+        """Play a wav. Returns False if stopped/interrupted/failed."""
+        binp = _which("paplay") or _which("aplay")
+        if not binp or not Path(wav).exists():
+            return False
+        with self._lock:
+            # never two voices at once — cut the previous one instantly
+            if self._proc is not None and self._proc.poll() is None:
+                try:
+                    self._proc.terminate()
+                except Exception:
+                    pass
+            self.interrupted = False
+            self._proc = subprocess.Popen(
+                [binp, "-q", wav], stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        if interruptible:
+            mon = threading.Thread(target=_barge_in_watch,
+                                   args=(self,), daemon=True)
+            mon.start()
+        try:
+            self._proc.wait(timeout=timeout)
+        except Exception:
+            self.stop()
+            return False
+        return not self.interrupted
 
 
-def _spd_say(text: str) -> bool:
-    spd = _which("spd-say")
-    if not spd:
-        return False
+PLAYER = _Player()
+
+
+def stop_speaking() -> None:
+    """Interrupt whatever she is saying right now."""
+    PLAYER.stop()
+
+
+def _barge_in_watch(player: "_Player", chunk_s: float = 0.1,
+                    threshold: float = 29500.0, loud_chunks: int = 3) -> None:
+    """Watch the mic (+ keyboard) while she speaks; real interruption =
+    the user talking OVER her. Calibration note: on this machine the mic
+    picks up her own playback at RMS ~21k (speaker bleed) and room noise
+    sits at ~7.5k — so the bar is set ABOVE the bleed ceiling and requires
+    ~300 ms of sustained near-clipping speech, plus Enter as a manual
+    escape hatch. Fails silently when no mic/tty — barge-in is a bonus."""
+    import select as _select
+    if not _which("arecord"):
+        return
     try:
-        p = subprocess.run([spd, "-w", "-l", "en", text[:600]],
-                           capture_output=True, timeout=120)
-        return p.returncode == 0
+        p = subprocess.Popen(
+            ["arecord", "-f", "S16_LE", "-r", str(RATE), "-c", "1", "-t", "raw"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except Exception:
-        return False
+        return
+    loud = 0
+    try:
+        while player._proc is not None and player._proc.poll() is None:
+            streams = [p.stdout]
+            if sys.stdin.isatty():
+                streams.append(sys.stdin)
+            r, _, _ = _select.select(streams, [], [], chunk_s)
+            if sys.stdin in r:
+                sys.stdin.readline()       # manual interrupt (Enter)
+                player.stop()
+                break
+            if p.stdout in r:
+                chunk = p.stdout.read(int(RATE * chunk_s) * 2) or b""
+                if not chunk:
+                    break
+                vals = struct.unpack("<%dh" % (len(chunk) // 2),
+                                     chunk[: len(chunk) // 2 * 2])
+                rms = (sum(v * v for v in vals) / max(1, len(vals))) ** 0.5
+                if rms > threshold:
+                    loud += 1
+                    if loud >= loud_chunks:
+                        player.stop()      # user spoke over her → cut now
+                        break
+                else:
+                    loud = 0
+    except Exception:
+        pass
+    finally:
+        try:
+            p.terminate()
+        except Exception:
+            pass
 
 
-def speak(text: str, voice_key: str = "", quiet: bool = False) -> dict:
-    """Speak text with the most human voice available: Gemini native audio
-    (when a Gemini key exists) else expressive edge-tts — shaped by the
-    reply's mood. Never raises. Returns {'ok', 'voice', 'engine', 'mood'}."""
+# ---------------------------------------------------------------- streaming
+_SENT_SPLIT = re.compile(r"(?<=[.!?।])\s+")
+
+
+def split_sentences(text: str, min_len: int = 22) -> list[str]:
+    """Split a reply into speakable sentences (handles Hindi '।' too).
+    Very short fragments are merged back so there are no awkward gaps."""
+    parts = [s.strip() for s in _SENT_SPLIT.split(text or "") if s.strip()]
+    out: list[str] = []
+    for s in parts:
+        if out and len(s) < min_len:
+            out[-1] += " " + s
+        else:
+            out.append(s)
+    return out or ([text.strip()] if (text or "").strip() else [])
+
+
+def _user_rate_pct() -> int:
+    """User speaking-speed preference, e.g. '+10%' → 10.
+    Default is slightly faster than stock TTS (+8%) — stock pace reads as
+    slow and robotic; a touch of speed reads as natural conversation."""
+    raw = str(load_prefs().get("rate") or "").strip()
+    m = re.match(r"^([+-]?\d+)\s*%$", raw)
+    if m:
+        return int(m.group(1))
+    return 8
+
+
+def _combine_rate(mood_rate: str) -> str:
+    total = int(mood_rate.replace("%", "").replace("+", "") or 0) + _user_rate_pct()
+    total = max(-50, min(80, total))
+    return f"{total:+d}%"
+
+def _atempo_factor() -> float:
+    return max(0.5, min(2.0, 1.0 + _user_rate_pct() / 100.0))
+
+
+def _synth_wav(sentence: str, engine_voice: str, engine_key: str,
+               mood_rate: str, mood_pitch: str, style: str) -> str:
+    """Synthesize ONE sentence to a cached wav ('' on failure).
+    Returns a ready-to-play 48 kHz stereo file for every engine."""
+    TTS_CACHE.mkdir(parents=True, exist_ok=True)
+    rate = _combine_rate(mood_rate)
+    digest = hashlib.sha1(
+        f"{engine_key}|{engine_voice}|{rate}|{mood_pitch}|{sentence}".encode()
+    ).hexdigest()[:16]
+    wav = str(TTS_CACHE / f"{digest}.wav")
+    if Path(wav).exists() and Path(wav).stat().st_size > 1000:
+        return wav
+    atempo = _atempo_factor()
+    atempo_arg = ["-filter:a", f"atempo={atempo}"] if abs(atempo - 1.0) > 0.02 else []
+
+    # 1) Gemini native audio (Gemini Live family) — when a key exists
+    if engine_key in ("auto-gemini",) or engine_key.startswith("gemini-"):
+        pcm_wav = wav + ".pcm.wav"
+        if _gemini_tts(sentence, pcm_wav, voice=engine_voice, style=style):
+            if not atempo_arg:
+                return pcm_wav            # 24k mono plays fine via aplay
+            try:
+                ff = _ffmpeg()
+                p = subprocess.run(
+                    [ff, "-y", "-loglevel", "error", "-i", pcm_wav,
+                     "-ar", "48000", "-ac", "2", *atempo_arg, wav],
+                    capture_output=True, timeout=60)
+                if p.returncode == 0 and os.path.getsize(wav) > 1000:
+                    return wav
+            except Exception:
+                pass
+            return pcm_wav
+
+    # 2) edge-tts neural voices (free, no key)
+    with tempfile.TemporaryDirectory() as td:
+        mp3 = os.path.join(td, "s.mp3")
+        used = ""
+        edge_voice = engine_voice if engine_key in VOICES else \
+            VOICES[DEFAULT_EDGE_VOICE][0]
+        if _edge_tts(sentence, edge_voice, mp3, rate=rate, pitch=mood_pitch):
+            used = "edge"
+        elif _gtts(sentence, os.path.join(td, "g.mp3")):
+            mp3 = os.path.join(td, "g.mp3")
+            used = "gtts"
+        if used:
+            try:
+                ff = _ffmpeg()
+                p = subprocess.run(
+                    [ff, "-y", "-loglevel", "error", "-i", mp3,
+                     "-ar", "48000", "-ac", "2", *atempo_arg, wav],
+                    capture_output=True, timeout=60)
+                if p.returncode == 0 and os.path.getsize(wav) > 1000:
+                    return wav
+            except Exception:
+                pass
+    return ""
+
+
+_MOOD_STYLE = {
+    "happy": "bright, excited, smiling through the words",
+    "apologetic": "gentle, softer, a bit lower, sincere",
+    "asking": "curious, playful, rising at the end",
+    "serious": "calm, clear, attentive",
+    "neutral": "relaxed and warm",
+}
+
+
+def _jitter(index: int, sentence: str) -> tuple[int, int]:
+    """Deterministic per-sentence prosody variation (rate %, pitch Hz).
+    Stock TTS delivers every sentence at identical pace/pitch — the
+    metronome effect that screams 'robot'. Tiny seeded variation makes
+    consecutive sentences feel like one flowing human thought."""
+    h = int(hashlib.sha1(f"{index}|{sentence}".encode()).hexdigest()[:6], 16)
+    return (h % 5) - 2, (h % 3) - 1          # rate -2..+2 %, pitch -1..+1 Hz
+
+
+def _shift_rate(rate: str, delta_pct: int) -> str:
+    try:
+        v = int(rate.replace("%", "").replace("+", "") or 0) + delta_pct
+        return f"{max(-50, min(80, v)):+d}%"
+    except Exception:
+        return rate
+
+
+def _shift_pitch(pitch: str, delta_hz: int) -> str:
+    try:
+        v = int(pitch.replace("Hz", "").replace("+", "") or 0) + delta_hz
+        return f"{v:+d}Hz"
+    except Exception:
+        return pitch
+
+
+def speak_stream(text: str, voice_key: str = "") -> dict:
+    """Speak a reply sentence-by-sentence: synthesis of the NEXT sentence
+    happens while the CURRENT one plays, so the first words are audible in
+    ~1 s instead of after the whole reply. The user can interrupt (barge-in)
+    at any moment; playback then stops instantly. Never raises."""
     text = (text or "").strip()
     if not text:
         return {"ok": False, "reason": "empty"}
     voice_name, key = resolve_voice(voice_key)
     rate, pitch, mood = detect_mood(text)
-    style = _STYLE_BASE + f" {mood} mood: " + {
-        "happy": "bright, excited, smiling through the words",
-        "apologetic": "gentle, softer, a bit lower, sincere",
-        "asking": "curious, playful, rising at the end",
-        "serious": "calm, clear, attentive",
-        "neutral": "relaxed and warm",
-    }.get(mood, "relaxed and warm")
-    TTS_CACHE.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha1(
-        f"{key}|{rate}|{pitch}|{text[:2000]}".encode()).hexdigest()[:16]
-    wav = str(TTS_CACHE / f"{digest}.wav")
+    style = _STYLE_BASE + f" {mood} mood: " + \
+        _MOOD_STYLE.get(mood, "relaxed and warm")
+    sents = split_sentences(text)
+    if not sents:
+        return {"ok": False, "reason": "empty"}
 
-    if Path(wav).exists() and Path(wav).stat().st_size > 1000:
-        ok = _play_wav(wav)
-        if ok:
-            return {"ok": True, "voice": key, "engine": "cached",
-                    "mood": mood}
+    engine_label = ("gemini-tts" if (key == "auto-gemini"
+                                     or key.startswith("gemini-"))
+                    and _gemini_key() else "edge-tts")
+    t0 = time.monotonic()
+    from concurrent.futures import ThreadPoolExecutor
+    spoken = 0
+    first_audio_s = None
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        dr, dp = _jitter(0, sents[0])
+        fut = pool.submit(_synth_wav, sents[0], voice_name, key,
+                          _shift_rate(rate, dr), _shift_pitch(pitch, dp),
+                          style)
+        for i in range(len(sents)):
+            wav = fut.result()
+            if i + 1 < len(sents):
+                dr2, dp2 = _jitter(i + 1, sents[i + 1])
+                fut = pool.submit(_synth_wav, sents[i + 1], voice_name,
+                                  key, _shift_rate(rate, dr2),
+                                  _shift_pitch(pitch, dp2), style)
+            if not wav:
+                continue
+            if first_audio_s is None:
+                first_audio_s = round(time.monotonic() - t0, 2)
+            PLAYER.play(wav, interruptible=True)
+            spoken += 1
+            if PLAYER.interrupted:
+                return {"ok": True, "voice": key, "engine": engine_label,
+                        "mood": mood, "interrupted": True,
+                        "spoken": spoken, "total": len(sents),
+                        "first_audio_s": first_audio_s}
+    ok = spoken > 0 or _spd_say(text)
+    return {"ok": ok, "voice": key, "engine": engine_label if spoken else
+            ("spd-say (robotic fallback)" if spoken == 0 and ok else engine_label),
+            "mood": mood, "interrupted": False, "spoken": spoken,
+            "total": len(sents), "first_audio_s": first_audio_s,
+            "hint": _quality_hint(key)}
 
-    # --- best: Gemini native audio (Gemini Live quality) -------------------
-    if key in ("auto-gemini",) or key.startswith("gemini-"):
-        if _gemini_tts(text, wav, voice=voice_name, style=style):
-            if _play_wav(wav):
-                return {"ok": True, "voice": key, "engine": "gemini-tts",
-                        "mood": mood}
 
-    # --- fallback: edge-tts expressive generation ---------------------------
-    with tempfile.TemporaryDirectory() as td:
-        mp3 = os.path.join(td, "s.mp3")
-        engine = ""
-        edge_voice = voice_name if key in VOICES else \
-            VOICES[DEFAULT_EDGE_VOICE][0]
-        if _edge_tts(text, edge_voice, mp3, rate=rate, pitch=pitch):
-            engine = "edge-tts"
-        elif _gtts(text, os.path.join(td, "g.mp3")):
-            mp3 = os.path.join(td, "g.mp3")
-            engine = "gtts"
-        if engine and _convert(mp3, wav):
-            if _play_wav(wav):
-                return {"ok": True, "voice": key, "engine": engine,
-                        "mood": mood}
-        if _spd_say(text):
-            return {"ok": True, "voice": key, "mood": mood,
-                    "engine": "spd-say (robotic fallback)"}
-    return {"ok": False, "voice": key, "mood": mood,
-            "reason": "no TTS engine worked"}
+def _quality_hint(key: str) -> str:
+    """One-line nudge when she is NOT on the best voice."""
+    if _gemini_key():
+        return ""
+    return ("voice tip: this is the free Edge fallback — for the Gemini "
+            "Live-quality voice run: neural-web api add gemini")
+
+
+def speak(text: str, voice_key: str = "", quiet: bool = False) -> dict:
+    """Backwards-compatible entry point — now streaming + interruptible."""
+    return speak_stream(text, voice_key)
 
 
 def _which(name: str) -> str:

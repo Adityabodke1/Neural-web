@@ -53,6 +53,7 @@ def voice(
     seconds: float = typer.Option(0, "--seconds", "-s", help="Fixed recording length (0 = auto-stop after speech)"),
     no_tts: bool = typer.Option(False, "--no-tts", help="Don't speak the reply"),
     voice_name: str = typer.Option("", "--voice", "-v", help="Voice preset: auto, gemini-leda, neerja, ava, emma, sonia, swara"),
+    rate: str = typer.Option("", "--rate", help="Speaking speed, e.g. '+10%%' faster or '-10%%' slower (saved)"),
     language: str = typer.Option("", "--language", help="STT language (e.g. en-IN, en-US, hi-IN)"),
     device: str = typer.Option("", "--device", "-d", help="ALSA capture device (default: auto)"),
     hindi: bool = typer.Option(False, "--hindi", help="Hindi mode: Hindi STT + Hindi voice + she replies in Hindi"),
@@ -81,6 +82,15 @@ def voice(
         prefs["voice"] = vn if vn == "auto" else speech.resolve_voice(vn)[1]
         speech.save_prefs(prefs)
         console.print(f"[ok]voice saved: [bold cyan]{prefs['voice']}[/bold cyan][/ok]")
+    if rate:
+        import re as _re
+        if not _re.match(r"^[+-]?\d+\s*%$", rate.strip()):
+            console.print("[err]--rate looks like '+10%' or '-15%'[/err]")
+            return
+        prefs = speech.load_prefs()
+        prefs["rate"] = rate.strip()
+        speech.save_prefs(prefs)
+        console.print(f"[ok]speaking speed saved: {rate.strip()}[/ok]")
     if language:
         prefs = speech.load_prefs()
         prefs["language"] = language
@@ -102,6 +112,15 @@ def voice(
     persona = ""
     if conversational:
         persona = companion.persona_prompt()
+        if not speech._gemini_key():
+            console.print(Panel(
+                "This is the FREE fallback voice. For the [bold]fully human, "
+                "Gemini Live-level voice[/bold] (real emotion, natural "
+                "breathing, Hindi + English):\n\n"
+                "  1. Get a free key: [cyan]https://aistudio.google.com/apikey[/cyan]\n"
+                "  2. Run: [cyan]neural-web api add gemini[/cyan]\n\n"
+                "It takes 30 seconds — she upgrades automatically, forever.",
+                title="🎙 voice upgrade available", border_style="yellow"))
         console.print('[muted]💬 conversation mode — say "bye" when you\'re '
                       "done (Ctrl+C also works)[/muted]")
 
@@ -176,15 +195,24 @@ def voice(
         summary = (result.get("summary") or "").strip() \
             if isinstance(result, dict) else ""
 
-        # ---- 4. reply (print + spoken, expressive voice) ---------------------
+        # ---- 4. reply (streamed audio, interruptible — barge in anytime) ----
         if summary:
             console.print(Panel(summary, title="NEURAL WEB (voice reply)",
                                 border_style="cyan"))
             if not no_tts:
                 out = speech.speak(summary)
                 if out.get("ok"):
+                    extra = f' · mood {out.get("mood", "neutral")}'
+                    if out.get("interrupted"):
+                        extra += f' · interrupted at {out.get("spoken")}/{out.get("total")} sentences'
                     console.print(f'[muted]🔊 {out["engine"]} · voice '
-                                  f'{out["voice"]} · mood {out.get("mood", "neutral")}[/muted]')
+                                  f'{out["voice"]}{extra} '
+                                  f'· first audio {out.get("first_audio_s", "?")}s[/muted]')
+                    if out.get("hint") and not getattr(voice, "_hint_shown", False):
+                        voice._hint_shown = True
+                        console.print(f"[yellow]{out['hint']}[/yellow]")
+                if out.get("interrupted"):
+                    console.print("[muted]you spoke — she stopped, listening…[/muted]")
         else:
             console.print("[warn]the agent finished without a summary[/warn]")
 

@@ -136,11 +136,30 @@ def _github_support(command: str) -> tuple[dict, list[tuple[str, str]]]:
     entries = [("user.name", name), ("user.email", email)]
     if token_file:
         binds.append((token_file, f"{_GH_SANDBOX_DIR}/{_TOKEN_REL_PATH}"))
-        # git-credential protocol: read the token FILE inside the sandbox —
-        # the secret never travels through argv or environment variables
+        # git-credential helper as a PLAIN executable script: git runs it
+        # directly as [script, get] with no shell parsing. The `!`-shell
+        # helper string was unreliable under dash inside bwrap — git
+        # emitted 'password=get' (its own operation argv) instead of the
+        # token. The script reads the bound token FILE inside the sandbox,
+        # so the secret never travels through argv or environment.
+        helper_host = Path(token_file).parent / "git-credential-nw"
+        helper_host.write_text(
+            "#!/bin/sh\n"
+            "# NEURAL WEB sandbox git credential helper.\n"
+            'op="$1"\n'
+            "cat >/dev/null    # consume git's credential request from stdin\n"
+            'if [ "$op" = "get" ]; then\n'
+            f'  tok="$(cat {_GH_SANDBOX_DIR}/{_TOKEN_REL_PATH} 2>/dev/null)"\n'
+            '  if [ -n "$tok" ]; then\n'
+            '    printf "username=x-access-token\\n"\n'
+            '    printf "password=%s\\n" "$tok"\n'
+            "  fi\n"
+            "fi\n")
+        helper_host.chmod(0o755)
+        binds.append((str(helper_host),
+                      f"{_GH_SANDBOX_DIR}/git-credential-nw"))
         entries.append(("credential.helper",
-                        f"!printf 'username=x-access-token\\npassword=%s\\n' "
-                        f'"$(cat {_GH_SANDBOX_DIR}/{_TOKEN_REL_PATH})"'))
+                        f"{_GH_SANDBOX_DIR}/git-credential-nw"))
     count = len(entries)
     env["GIT_CONFIG_COUNT"] = str(count)
     for i, (k, v) in enumerate(entries):
