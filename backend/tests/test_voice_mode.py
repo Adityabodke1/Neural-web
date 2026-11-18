@@ -4,8 +4,9 @@ Run: .venv/bin/python -m pytest backend/tests/test_voice_mode.py -v
 """
 from __future__ import annotations
 
-import wave
 import struct
+from pathlib import Path
+import wave
 
 import pytest
 
@@ -81,39 +82,83 @@ def test_scrape_url_tool_blocked_url_is_honest():
 # ------------------------------------------------------------- STT
 def test_transcribe_wav_silence_returns_empty(monkeypatch):
     """A silent wav transcribes to '' (network mocked — no real API call)."""
-    import backend.cli.commands.voice_cmd as v
-
-    class FakeRec:
-        def record(self, src):
-            return object()
-
-        def recognize_google(self, audio):
-            import speech_recognition as sr
-            raise sr.UnknownValueError()
-
     import speech_recognition as sr
     monkeypatch.setattr(sr.Recognizer, "record", lambda self, s: object())
     monkeypatch.setattr(sr.Recognizer, "recognize_google",
-                        lambda self, a: (_ for _ in ()).throw(sr.UnknownValueError()))
+                        lambda self, a, **kw: (_ for _ in ()).throw(
+                            sr.UnknownValueError()))
     wav = _make_wav(tmp_wav(), seconds=0.3)
-    assert v.transcribe_wav(wav) == ""
+    from backend.app.voice import speech
+    assert speech.transcribe_wav(wav) == ""
 
 
 def test_transcribe_wav_mocked_success(monkeypatch):
-    import backend.cli.commands.voice_cmd as v
     import speech_recognition as sr
+    captured = {}
     monkeypatch.setattr(sr.Recognizer, "record", lambda self, s: object())
-    monkeypatch.setattr(sr.Recognizer, "recognize_google",
-                        lambda self, a: "open brave and search amazon")
+
+    def fake_rec(self, a, **kw):
+        captured["lang"] = kw.get("language")
+        return "open brave and search amazon"
+    monkeypatch.setattr(sr.Recognizer, "recognize_google", fake_rec)
     wav = _make_wav(tmp_wav(), seconds=0.3)
-    assert v.transcribe_wav(wav) == "open brave and search amazon"
+    from backend.app.voice import speech
+    assert speech.transcribe_wav(wav) == "open brave and search amazon"
+    assert captured["lang"] == "en-IN"          # Indian accent language default
+
+
+def test_mood_engine_shapes_delivery():
+    from backend.app.voice.speech import detect_mood
+    rate, pitch, mood = detect_mood("Great! I found wireless earbuds at 1999 rupees!")
+    assert mood == "happy" and pitch.startswith("+")
+    rate, pitch, mood = detect_mood("Sorry, I couldn't find that product.")
+    assert mood == "apologetic" and pitch.startswith("-")
+    rate, pitch, mood = detect_mood("The lowest price is 1999.")
+    assert mood == "neutral"
+
+
+def test_voice_resolution_and_prefs(tmp_path, monkeypatch):
+    from backend.app.voice import speech
+    monkeypatch.setattr(speech, "PREFS_PATH", tmp_path / "voice.json")
+    v, key = speech.resolve_voice("neerja")
+    assert v == "en-IN-NeerjaExpressiveNeural" and key == "neerja"
+    speech.save_prefs({"voice": "ava"})
+    assert speech.resolve_voice("")[0] == "en-US-AvaMultilingualNeural"
+    # unknown name falls back to the saved preference, never crashes
+    v, key = speech.resolve_voice("zzz")
+    assert key == "ava"
+
+
+def test_vad_trim_cuts_silence_and_boosts():
+    """1 s silence + 0.3 s tone + 1 s silence → trimmed ≈0.5 s, louder."""
+    from backend.app.voice.speech import trim_and_boost
+    import math
+    rate = 16000
+    silence = [0] * rate
+    quiet_tone = [int(300 * math.sin(2 * math.pi * 220 * i / rate))
+                  for i in range(rate // 2)]           # 0.5 s at ~1% amplitude
+    pcm = struct.pack("<%dh" % (len(silence + quiet_tone + silence)),
+                      *(silence + quiet_tone + silence))
+    out = trim_and_boost(pcm, rate)
+    n = len(out) // 2
+    assert rate * 0.3 < n < rate * 1.0                  # silence trimmed
+    peak = max(abs(s) for (s,) in struct.iter_unpack("<h", out))
+    assert peak > 2000                                  # boosted
+
+
+def test_record_command_fixed_seconds_real_mic():
+    """Real hardware: record 3 s from the mic and get a wav back."""
+    from backend.app.voice.speech import record_command
+    wav = record_command(seconds=3)
+    if not wav:
+        return                                          # no arecord/mic
+    assert Path(wav).exists() and Path(wav).stat().st_size > 1000
 
 
 # ------------------------------------------------------------ helpers
 def _run(coro):
     import asyncio
-    return asyncio.get_event_loop().run_until_complete(coro) \
-        if False else asyncio.run(coro)
+    return asyncio.run(coro)
 
 
 def tmp_wav() -> str:

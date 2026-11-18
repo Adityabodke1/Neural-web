@@ -245,7 +245,7 @@ blocked; every operation is written to an audit log (`neural-web permissions --a
 ### 5. Agentic voice mode — speak, and the agent acts on your computer
 
 ```bash
-neural-web voice                # speak a command (Enter starts, Enter stops)
+neural-web voice                # listen (auto-stops when you finish) → acts → replies
 neural-web voice --loop         # keep listening until Ctrl+C
 neural-web voice --text "open brave and search wireless earbuds on amazon and give the lowest price in amazon"
 ```
@@ -254,8 +254,20 @@ You can also use `/voice "command"` inside `chat`. The voice agent really
 operates the computer: it **opens desktop apps on screen** (Brave, Files,
 Calculator… — whitelist-only, audited), searches the web, scrapes pages,
 extracts the data (e.g. the lowest Amazon price) and **speaks the answer
-back** (via `spd-say`, when installed). Speech-to-text uses the free Google
-Web Speech API — no API key needed.
+back in an expressive, human-sounding girl voice** — Microsoft Edge neural
+voices (free, no key). The reply's *mood* shapes the delivery: happy news is
+bouncier, apologies are softer, questions rise. Pick a voice and it's saved:
+
+```bash
+neural-web voice --list-voices          # hear previews, list presets
+neural-web voice --voice neerja         # en-IN expressive girl (default)
+neural-web voice --voice ava            # US multilingual
+neural-web voice --language en-IN       # STT accent (saved)
+```
+
+Speech-to-text uses the free Google Web Speech API — no API key needed.
+Recordings are auto-trimmed (leading/trailing silence cut) and normalized
+for reliable recognition.
 
 ### 6. Research, scrape, extract
 
