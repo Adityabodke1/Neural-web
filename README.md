@@ -160,7 +160,7 @@ or add it at runtime — keys are stored in the OS keyring when available, DB wi
 a plaintext warning otherwise, and are **never** printed or exposed:
 
 ```bash
-neural-web api add groq        # paste the key (hidden) → auto-tested → models imported
+ api add groq        # paste the key (hidden) → auto-tested → models imported
 ```
 
 The flow tests the key for real, imports the provider's model catalog
@@ -169,7 +169,7 @@ automatically, and activates a working model — no manual model setup needed.
 ### 2. Chat with the AI (Claude Code style)
 
 ```bash
-neural-web chat        # type anything — answers like ChatGPT
+ chat        # type anything — answers like ChatGPT
 ```
 
 Inside chat (and inside the interactive shell):
@@ -191,7 +191,7 @@ plain questions get plain answers, and slash commands work there too.
 ### 3. Show only FREE models
 
 ```bash
-neural-web models --free
+ models --free
 ```
 
 Lists **only models with verified zero-cost API usage**: OpenRouter models whose
@@ -245,11 +245,11 @@ blocked; every operation is written to an audit log (`neural-web permissions --a
 ### 5. Agentic voice mode — talk to her, she acts on your computer
 
 ```bash
-neural-web voice                # conversation mode: keep talking until you say 'bye'
-neural-web voice --once         # single command, then exit
-neural-web voice --text "open brave and search wireless earbuds on amazon and give the lowest price in amazon"
-neural-web memory               # what she remembers about you (memory.txt)
-neural-web memory --forget exam # make her forget something
+ voice                # conversation mode: keep talking until you say 'bye'
+ voice --once         # single command, then exit
+ voice --text "open brave and search wireless earbuds on amazon and give the lowest price in amazon"
+ memory               # what she remembers about you (memory.txt)
+ memory --forget exam # make her forget something
 ```
 
 You can also use `/voice` and `/memory` inside `chat`. **She converses**:
@@ -269,12 +269,12 @@ to Microsoft Edge neural voices (free, no key). The reply's *mood* shapes
 the delivery: happy news is bouncier, apologies are softer. Pick a voice:
 
 ```bash
-neural-web voice --list-voices          # hear previews, list presets
-neural-web voice --voice auto           # best available (default)
-neural-web voice --voice gemini-leda    # Gemini native girl voice
-neural-web voice --voice neerja         # en-IN expressive girl
-neural-web voice --hindi                # हिंदी mode — Hindi STT, Hindi replies, Hindi voice
-neural-web voice --language en-IN       # STT accent (saved)
+ voice --list-voices          # hear previews, list presets
+ voice --voice auto           # best available (default)
+ voice --voice gemini-leda    # Gemini native girl voice
+ voice --voice neerja         # en-IN expressive girl
+ voice --hindi                # हिंदी mode — Hindi STT, Hindi replies, Hindi voice
+ voice --language en-IN       # STT accent (saved)
 ```
 
 **Hindi mode**: speak Hindi, she replies in natural conversational Hindi
@@ -300,8 +300,8 @@ Every extracted record carries per-field provenance you can inspect.
 ### 7. Watch your costs
 
 ```bash
-neural-web usage --all     # real token counts per model, quota bars
-neural-web status          # models, providers, sandbox state, history
+ usage --all     # real token counts per model, quota bars
+ status          # models, providers, sandbox state, history
 ```
 
 ---
