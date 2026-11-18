@@ -120,26 +120,26 @@ records, verification results — then prints a records table, token usage
 Other commands:
 
 ```bash
-neural-web scrape https://www.python.org/about/ --save
-neural-web crawl https://www.python.org/ --depth 2 --max-pages 8
-neural-web extract "https://example.com" "name,description,website"
-neural-web compare https://a.com https://b.com --aspect "pricing"
-neural-web monitor https://example.com            # change detection (rerun to diff)
-neural-web sources --last                          # every source behind a session
-neural-web explain-source --record 1 --field name  # per-field provenance
-neural-web export --format xlsx                    # Excel with source columns
-neural-web ask "which sources mentioned X?"        # chat with research memory
-neural-web api add groq                             # add an API key (hidden prompt, auto-tested)
-neural-web api                                      # list keys (masked) & storage
-neural-web api test                                 # test every configured provider
-neural-web api remove cerebras                      # remove a stored key
-neural-web models add --provider groq --model-id openai/gpt-oss-120b --select
-neural-web usage --all                             # quota bars per model
-neural-web benchmarks --run groq/openai/gpt-oss-120b
-neural-web permissions --add-folder ~/Projects     # authorize coding-agent workspace
-neural-web coding "build a todo app" --workspace ~/Projects
-neural-web config --emergency-stop                 # kill everything, disable subsystems
-neural-web status
+ scrape https://www.python.org/about/ --save
+ crawl https://www.python.org/ --depth 2 --max-pages 8
+ extract "https://example.com" "name,description,website"
+ compare https://a.com https://b.com --aspect "pricing"
+ monitor https://example.com            # change detection (rerun to diff)
+ sources --last                          # every source behind a session
+ explain-source --record 1 --field name  # per-field provenance
+ export --format xlsx                    # Excel with source columns
+ ask "which sources mentioned X?"        # chat with research memory
+ api add groq                             # add an API key (hidden prompt, auto-tested)
+ api                                      # list keys (masked) & storage
+ api test                                 # test every configured provider
+ api remove cerebras                      # remove a stored key
+ models add --provider groq --model-id openai/gpt-oss-120b --select
+ usage --all                             # quota bars per model
+ benchmarks --run groq/openai/gpt-oss-120b
+ permissions --add-folder ~/Projects     # authorize coding-agent workspace
+ coding "build a todo app" --workspace ~/Projects
+ config --emergency-stop                 # kill everything, disable subsystems
+ status
 ```
 
 Environment variables (all optional except one AI key):
