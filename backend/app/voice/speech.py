@@ -498,13 +498,13 @@ def split_sentences(text: str, min_len: int = 22) -> list[str]:
 
 def _user_rate_pct() -> int:
     """User speaking-speed preference, e.g. '+10%' → 10.
-    Default is slightly faster than stock TTS (+8%) — stock pace reads as
-    slow and robotic; a touch of speed reads as natural conversation."""
+    Default is noticeably faster than stock TTS (+18%) — stock pace reads
+    as slow and robotic; brisker delivery reads as natural conversation."""
     raw = str(load_prefs().get("rate") or "").strip()
     m = re.match(r"^([+-]?\d+)\s*%$", raw)
     if m:
         return int(m.group(1))
-    return 8
+    return 18
 
 
 def _combine_rate(mood_rate: str) -> str:
