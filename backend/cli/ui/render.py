@@ -137,6 +137,7 @@ _TOOL_VERB = {
     "request_elevation": "Asking for permission", "finish_task": "Wrapping up",
     "install_dependency": "Installing", "build_project": "Building",
     "run_tests": "Testing", "web_search": "Searching", "scrape_page": "Reading",
+    "update_plan": "Planning",
     "extract_fields": "Extracting", "store_record": "Saving finding",
     "save_finding": "Saving finding", "verify_claim": "Verifying",
     "verify_record": "Verifying", "summarize_page": "Summarizing",
@@ -201,6 +202,20 @@ def event_line(evt: dict) -> Text:
     if type_ == "plan":
         return Text.assemble(("⏺ Plan: ", "accent"),
                              (str(p.get("plan", {}).get("objective", ""))[:90], "value"))
+    if type_ == "plan_update":
+        # live todo list (Claude-Code style): ☐ pending · ◐ in progress · ☑ done
+        icons = {"completed": ("☑ ", "ok"), "in_progress": ("◐ ", "warn"),
+                 "pending": ("☐ ", "muted")}
+        steps = p.get("steps") or []
+        if not steps:
+            return Text("")
+        lines = []
+        for s in steps:
+            icon, style = icons.get(str(s.get("status", "pending")), ("☐ ", "muted"))
+            label = str(s.get("step", ""))[:100]
+            dim = "muted" if s.get("status") == "completed" else "value"
+            lines.append(Text.assemble(("  " + icon, style), (label, dim)))
+        return Text("\n").join(lines)
     if type_ == "summary":
         return Text.assemble(("  ⎿ ", "muted"), (p.get("summary", "")[:120], "muted"))
     if type_ == "error":

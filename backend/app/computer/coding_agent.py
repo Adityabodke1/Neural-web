@@ -51,7 +51,16 @@ HOW TO WORK:
 9. When the task is done (or the step budget is exhausted), call finish_task with a summary
    of files changed and verification results. Be factual: list what actually happened.
 
-STEP BUDGET: {max_steps} steps. Use them efficiently."""
+STEP BUDGET: {max_steps} steps. Use them efficiently.
+
+PLAN DISCIPLINE (Claude-Code style):
+- Your FIRST tool call MUST be update_plan with all steps pending.
+- Keep it live: mark the current step 'in_progress', finished steps
+  'completed'. Call update_plan again after each step completes.
+- When a command fails, READ the real error output and fix the ROOT CAUSE
+  in the code — never re-run the same command unchanged.
+- Before calling finish_task you MUST have verified your work with
+  run_tests / build_project / execute_command (real exit code 0)."""
 
 VOICE_COMPUTER_SYSTEM = """You are the NEURAL WEB voice agent running on {os}.
 The user spoke a command out loud; it was transcribed to text. ACT on their
@@ -97,7 +106,7 @@ STEP BUDGET: {max_steps} steps. Usually 4-8 steps are enough."""
 
 class CodingAgent:
     def __init__(self, task_id: int, prompt: str, workspace_path: str,
-                 tm: TaskManager, max_steps: int = 40, model_spec: str = "auto",
+                 tm: TaskManager, max_steps: int = 80, model_spec: str = "auto",
                  mode: str = "code", persona: str = "") -> None:
         self.task_id = task_id
         self.prompt = prompt
@@ -107,7 +116,34 @@ class CodingAgent:
         self.model_spec = model_spec
         self.mode = mode if mode in ("code", "computer") else "code"
         self.persona = (persona or "").strip()
-        self.deadline = time.monotonic() + 25 * 60
+        self.deadline = time.monotonic() + 45 * 60
+        self.plan: list[dict] = []          # live todo list (update_plan)
+        self.verified_run = False           # a real test/build ran with exit 0
+        self.verify_gate_used = False       # one-time verify-before-finish gate
+        self.plan_nudged = False            # one-time "plan before coding" nudge
+
+    # ------------------------------------------------------------- planning
+    def _update_plan(self, raw_steps) -> dict:
+        """Validate and store the model's todo list; emit it live."""
+        steps: list[dict] = []
+        if isinstance(raw_steps, list):
+            for s in raw_steps[:12]:
+                if not isinstance(s, dict):
+                    continue
+                label = str(s.get("step", "")).strip()[:120]
+                if not label:
+                    continue
+                status = str(s.get("status", "pending")).strip()
+                if status not in ("pending", "in_progress", "completed"):
+                    status = "pending"
+                steps.append({"step": label, "status": status})
+        if not steps:
+            return {"error": "update_plan needs a non-empty 'steps' list of "
+                             "{\"step\", \"status\"}"}
+        self.plan = steps
+        self.tm.event("plan_update", {"steps": [dict(s) for s in steps]})
+        return {"ok": True, "plan": steps,
+                "note": "plan updated and shown to the user"}
 
     async def run(self) -> dict:
         try:
@@ -159,6 +195,7 @@ class CodingAgent:
                 summary = summary or "stopped (budget/stop)"
                 break
             step += 1
+            _compact_context(messages)
             try:
                 result = await ai_provider.chat_with_tools(
                     messages, tools, request_type="coding_agent",
@@ -221,11 +258,53 @@ class CodingAgent:
                     k: (v if len(str(v)) < 200 else str(v)[:200] + "…")
                     for k, v in args.items()}})
                 if tc["name"] == "finish_task":
+                    # verify-before-finish gate: never claim success on
+                    # unverified changes (one-time nudge, Claude-Code style)
+                    if (files_touched > 0 and not self.verified_run
+                            and not self.verify_gate_used
+                            and step < self.max_steps - 2
+                            and self.mode == "code"):
+                        self.verify_gate_used = True
+                        messages.append({"role": "tool", "tool_call_id": tc["id"],
+                                         "content": json.dumps({
+                                             "blocked": True,
+                                             "reason": "you changed files but never "
+                                                       "verified them. Run the "
+                                                       "project's tests/build now "
+                                                       "(run_tests or "
+                                                       "execute_command), fix any "
+                                                       "failures, then call "
+                                                       "finish_task again."},
+                                             ensure_ascii=False)})
+                        self.tm.event("warning", {"message":
+                            "finish blocked — verification required first"})
+                        break           # continue working (do NOT set done)
                     summary = str(args.get("summary", ""))[:4000]
                     finished = True
                     done = True
                     break
-                out = await execute_tool(tc["name"], args, ctx)
+                if tc["name"] == "update_plan":
+                    out = self._update_plan(args.get("steps"))
+                else:
+                    out = await execute_tool(tc["name"], args, ctx)
+                # self-healing hint: failed commands must be READ and FIXED,
+                # not blindly re-run
+                if out.get("error"):
+                    out = dict(out, hint="this tool call FAILED — read the error, "
+                                         "fix the root cause, try a corrected "
+                                         "approach (never repeat it unchanged)")
+                elif (tc["name"] in ("execute_command", "run_tests", "build_project")
+                      and isinstance(out.get("exit_code"), int)
+                      and out["exit_code"] != 0):
+                    out = dict(out, hint=f"command FAILED (exit_code="
+                                         f"{out['exit_code']}) — read the real "
+                                         "error output, fix the root cause in the "
+                                         "code, then run a verification command")
+                elif (tc["name"] in ("execute_command", "run_tests", "build_project")
+                      and out.get("exit_code") == 0 and _looks_like_verify(
+                          args.get("command", "") if tc["name"] == "execute_command"
+                          else tc["name"])):
+                    self.verified_run = True
                 # repeated-identical-call guard: after 3 identical calls tell
                 # the model to change approach instead of burning the budget
                 key = tc["name"] + "|" + json.dumps(args, sort_keys=True, default=str)[:200]
@@ -249,6 +328,17 @@ class CodingAgent:
                     break
             if done:
                 break
+            # deterministic plan discipline: if she started changing files
+            # without a visible plan, remind her once (Claude-Code behaviour)
+            if (not self.plan and not self.plan_nudged and files_touched > 0
+                    and step < self.max_steps - 2 and self.mode == "code"):
+                self.plan_nudged = True
+                self.tm.event("warning", {"message":
+                    "no plan yet — asking the agent to plan before coding"})
+                messages.append({"role": "user", "content":
+                    "You started modifying files without a plan. Call "
+                    "update_plan NOW with the remaining steps and their "
+                    "statuses, then continue."})
 
         # verification: only claim success based on real outcomes
         verification = self._verify(files_touched, commands_run)
@@ -294,9 +384,16 @@ class CodingAgent:
         self.tm.event("tool", {"tool": tool, "args": {
             k: (v if len(str(v)) < 200 else str(v)[:200] + "…")
             for k, v in args.items()}})
-        out = await execute_tool(tool, args, ctx)
+        if tool == "update_plan":
+            out = self._update_plan(action.get("steps"))
+        else:
+            out = await execute_tool(tool, args, ctx)
         files = 1 if tool in ("write_file", "edit_file") and not out.get("error") else 0
         cmds = 1 if tool == "execute_command" else 0
+        if tool in ("execute_command", "run_tests", "build_project") \
+                and out.get("exit_code") == 0 and _looks_like_verify(
+                    args.get("command", "") if tool == "execute_command" else tool):
+            self.verified_run = True
         if cmds:
             self.tm.event("command", {"command": str(args.get("command", ""))[:200],
                                       "exit_code": out.get("exit_code"),
@@ -339,8 +436,35 @@ class CodingAgent:
                 "verification": verification}
 
 
+def _looks_like_verify(command_or_tool: str) -> bool:
+    """True when a command/tool actually verifies the build (tests, build)."""
+    import re
+    s = (command_or_tool or "").lower()
+    if command_or_tool in ("run_tests", "build_project"):
+        return True
+    return bool(re.search(
+        r"(pytest|\btest\b|unittest|-m\s+build|npm\s+(run\s+)?(test|build)|"
+        r"cargo\s+(test|build)|go\s+(test|build)|make\b|mvn\s|gradle\s|tsc\b|"
+        r"python3?\s+-m\s+py_compile|node\s+[\w./-]+\.(js|mjs|cjs)\b)", s))
+
+
+def _compact_context(messages: list[dict], keep_last: int = 16) -> None:
+    """Long builds blow past context limits: elide old tool results in place
+    (tool_call_id pairing is preserved so the API stays valid)."""
+    if len(messages) <= 44:
+        return
+    cut = len(messages) - keep_last
+    for i, m in enumerate(messages):
+        if i < 2 or i >= cut:
+            continue                      # keep system + first user + recent
+        if m.get("role") == "tool" and len(m.get("content", "")) > 400:
+            m["content"] = m["content"][:200] + " …[earlier result elided]"
+        elif m.get("role") == "assistant" and len(m.get("content", "")) > 1400:
+            m["content"] = m["content"][:600] + " …[elided]"
+
+
 async def start_coding_task(prompt: str, workspace_path: str,
-                            max_steps: int = 40, model_spec: str = "auto",
+                            max_steps: int = 80, model_spec: str = "auto",
                             mode: str = "code", persona: str = "") -> dict:
     from ..database.database import db
     now = repo.utcnow()

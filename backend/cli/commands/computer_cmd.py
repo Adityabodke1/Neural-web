@@ -77,7 +77,7 @@ def coding(
     task: list[str] = typer.Argument(None, help="Describe the coding task"),
     workspace_path: str = typer.Option("", "--workspace", "-w", help="Authorized workspace folder"),
     model: str = typer.Option("auto", "--model", "-m"),
-    max_steps: int = typer.Option(40, "--max-steps"),
+    max_steps: int = typer.Option(80, "--max-steps"),
     list_tasks: bool = typer.Option(False, "--list"),
 ):
     """Autonomous coding agent: builds real projects inside authorized folders."""

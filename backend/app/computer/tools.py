@@ -95,6 +95,17 @@ TOOLS = [
     {"name": "inspect_project", "level": 1,
      "description": "Inspect workspace status, languages, git state and file tree.",
      "parameters": _obj({}, [])},
+    {"name": "update_plan", "level": 1,
+     "description": "Maintain the visible task plan (todo list, Claude-Code style). "
+                    "Call this FIRST with the full list of steps (status 'pending'), "
+                    "then update as you work: mark the current step 'in_progress' and "
+                    "finished steps 'completed'. The user watches this list live — "
+                    "keep steps short and concrete.",
+     "parameters": _obj({"steps": {"type": "array", "items": {"type": "object",
+         "properties": {"step": {"type": "string"},
+                        "status": {"type": "string",
+                                   "enum": ["pending", "in_progress", "completed"]}},
+         "required": ["step", "status"]}}}, ["steps"])},
     # ---------------- system info ----------------
     {"name": "detect_os", "level": 1,
      "description": "Detect the operating system and architecture.",

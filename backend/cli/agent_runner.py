@@ -28,7 +28,7 @@ def pick_workspace(hint: str = "") -> str | None:
 
 
 def stream_agent_run(prompt: str, workspace_path: str,
-                     max_steps: int = 40, model: str = "auto",
+                     max_steps: int = 80, model: str = "auto",
                      mode: str = "code", persona: str = "") -> dict:
     """Start a coding task and stream live events until it finishes.
 
