@@ -1,0 +1,84 @@
+"""Durable conversation history shared by the shell, chat and voice modes.
+
+Every user message and assistant reply is appended to ONE append-only file:
+
+    ~/.neuralweb/conversations.jsonl      (one JSON object per line)
+
+On startup the recent turns are replayed into the model context, so the bot
+remembers earlier conversations and reacts to them naturally. Logging never
+raises — a failed write must never break a conversation.
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+
+CONV_DIR = Path.home() / ".neuralweb"
+CONV_PATH = CONV_DIR / "conversations.jsonl"
+
+MAX_CONTENT = 8000          # keep one huge pasted reply from bloating the log
+
+
+def log_turn(role: str, content: str, session: str = "shell",
+             workspace: str = "") -> None:
+    """Append one message to the durable conversation file (never raises)."""
+    text = str(content or "").strip()
+    if not text:
+        return
+    try:
+        CONV_DIR.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "session": session,
+            "workspace": workspace,
+            "role": role,
+            "content": text[:MAX_CONTENT],
+        }
+        with CONV_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _iter_records():
+    """Yield valid records, silently skipping blank/corrupt lines."""
+    try:
+        with CONV_PATH.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue          # never let one bad line kill history
+                if isinstance(rec, dict) and rec.get("role") in ("user", "assistant"):
+                    yield rec
+    except FileNotFoundError:
+        return
+    except Exception:
+        return
+
+
+def recent_messages(n_turns: int = 8) -> list[dict]:
+    """Last N conversational turns as model-context messages (oldest first)."""
+    recs = list(_iter_records())
+    picked = recs[-max(1, n_turns) * 2:]
+    return [{"role": r["role"], "content": r["content"]} for r in picked]
+
+
+def recent_turns(limit: int = 20) -> list[dict]:
+    """Last `limit` records with timestamps (for the `conversations` view)."""
+    return list(_iter_records())[-limit:]
+
+
+def stats() -> dict:
+    """Cheap counters for the startup line / `neural-web conversations`."""
+    recs = list(_iter_records())
+    return {
+        "messages": len(recs),
+        "turns": sum(1 for r in recs if r.get("role") == "user"),
+        "last": recs[-1]["ts"] if recs else "",
+        "path": str(CONV_PATH),
+    }

@@ -217,6 +217,11 @@ def voice(
             console.print("[warn]the agent finished without a summary[/warn]")
 
         # ---- 5. she remembers this (background, never blocks) ---------------
+        from ...app import conversations as conv
+        conv.log_turn("user", user_cmd, session="voice", workspace=ws or "")
+        if summary:
+            conv.log_turn("assistant", summary, session="voice",
+                          workspace=ws or "")
         if conversational:
             companion.log_interaction(user_cmd, summary)
             companion.extract_in_background(user_cmd, summary)

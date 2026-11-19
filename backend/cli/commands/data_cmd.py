@@ -205,3 +205,30 @@ def memory(
     console.print(Panel(
         text or "(nothing yet — talk to her and she'll remember)",
         title=f"🧠 {companion.MEMORY_FILE}", border_style="cyan"))
+
+
+def conversations(limit: int = typer.Option(20, "--last", help="How many turns to show"),
+                  path: bool = typer.Option(False, "--path", help="Just print the file path")):
+    """Saved conversations — every chat is stored in one file."""
+    from ...app import conversations as conv
+    st = conv.stats()
+    if path:
+        console.print(st["path"])
+        return
+    turns = conv.recent_turns(limit)
+    if not turns:
+        console.print(f"[muted]no conversations saved yet — they will go to "
+                      f"{st['path']}[/muted]")
+        return
+    t = Table(box=box.SIMPLE, header_style="bold cyan")
+    t.add_column("when", style="muted", width=19)
+    t.add_column("who", width=12)
+    t.add_column("message", overflow="fold")
+    for r in turns:
+        role = "you" if r["role"] == "user" else "neural-web"
+        color = "cyan" if r["role"] == "user" else "magenta"
+        t.add_row(str(r.get("ts", "")), f"[{color}]{role}[/{color}]",
+                  r["content"][:400].replace("\n", " "))
+    console.print(t)
+    console.print(f"[muted]saved file: {st['path']} ({st['turns']} turns). "
+                  f"The bot re-reads recent turns on startup and reacts to them.[/muted]")

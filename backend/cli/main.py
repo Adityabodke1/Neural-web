@@ -42,6 +42,7 @@ for fn, name, helptext in [
     (data_cmd.export, "export", "Export results (json/csv/xlsx)"),
     (data_cmd.ask, "ask", "Chat with your research memory"),
     (data_cmd.memory, "memory", "What NEURAL WEB remembers about you (memory.txt)"),
+    (data_cmd.conversations, "conversations", "View saved conversations (every chat is stored)"),
     (chat_cmd.chat, "chat", "Talk to the AI directly — type anything, get answers"),
     (models_cmd.model_cmd, "model", "Switch or add the active AI model (simple)"),
     (models_cmd.providers, "providers", "Manage AI providers"),
@@ -94,16 +95,20 @@ def interactive():
     try:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.history import FileHistory
     except ImportError:
         console.print("[err]prompt-toolkit not installed[/err]"); raise typer.Exit(1)
     init_db()
     show_banner(console)
+    from ..app import conversations as conv
+    from .prompt_style import active_workspace, prompt_markup
     commands = ["research", "scrape", "crawl", "extract", "compare", "monitor",
                 "sources", "explain-source", "history", "search-memory", "export",
                 "ask", "chat", "api", "providers", "models", "model", "usage",
                 "benchmarks", "config", "permissions", "approve", "coding",
-                "voice", "memory", "clear-cache", "status", "exit", "quit", "help"]
+                "voice", "memory", "conversations", "clear-cache", "status",
+                "exit", "quit", "help"]
     completer = WordCompleter(commands, sentence=True)
     hist_file = Path.home() / ".neural_web_history"
     session = PromptSession(history=FileHistory(str(hist_file)), completer=completer)
@@ -111,11 +116,18 @@ def interactive():
                   "fix/save requests are executed by the real coding agent. "
                   "Or use commands (TAB autocomplete). 'help' for commands, "
                   "'exit' to leave[/muted]")
+    # durable memory: replay earlier conversations so she remembers you
     chat_msgs: list[dict] = [{"role": "system", "content": chat_cmd.SYSTEM_PROMPT}]
+    past = conv.recent_messages(8)
+    if past:
+        chat_msgs.extend(past)
+        st = conv.stats()
+        console.print(f"[muted]🧠 memory: {st['turns']} earlier turns restored "
+                      f"from {st['path']}[/muted]")
     command_set = set(commands)
     while True:
         try:
-            line = session.prompt("neural-web ❯ ").strip()
+            line = session.prompt(HTML(prompt_markup())).strip()
         except (KeyboardInterrupt, EOFError):
             console.print("[muted]bye[/muted]")
             return
@@ -145,6 +157,7 @@ def interactive():
             t.add_row("permissions --add-folder PATH", "authorize folders")
             t.add_row("coding \"task\" --workspace PATH", "autonomous coding agent")
             t.add_row("voice \"command\" / voice --loop", "agentic voice mode — speak, agent acts")
+            t.add_row("conversations --last N", "view saved conversations (all chats are saved)")
             t.add_row("config --emergency-stop", "kill all agents & subsystems")
             console.print(t)
             continue
@@ -173,6 +186,10 @@ def interactive():
                     chat_msgs.pop()
                     continue
             chat_msgs.append({"role": "assistant", "content": out})
+            conv.log_turn("user", line, session="shell",
+                          workspace=active_workspace())
+            conv.log_turn("assistant", out, session="shell",
+                          workspace=active_workspace())
             chat_cmd.print_answer(out)
             continue
         _dispatch(line)

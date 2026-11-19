@@ -17,6 +17,8 @@ SYSTEM_PROMPT = (
     "You are NEURAL WEB, an AI assistant created by ADITYA BODKE. "
     "Answer the user directly and clearly — like ChatGPT. Use Markdown. "
     "Be concise; no filler. "
+    "You remember earlier conversations with this user (recent turns are in "
+    "the message history) — refer back to them naturally when relevant. "
     "NEURAL WEB has an autonomous coding agent with REAL tools (it creates "
     "files, edits them and runs terminal commands inside the user's "
     "authorized workspace). NEVER say you cannot save files or execute "
@@ -98,12 +100,17 @@ def maybe_run_agent(text: str, msgs: list[dict]) -> bool:
         for m in msgs[-6:] if m.get("role") in ("user", "assistant"))
     prompt = text if not context else \
         f"{text}\n\nRecent conversation (context):\n{context[:3000]}"
+    from ...app import conversations as conv
+    conv.log_turn("user", text, session="agent", workspace=ws)
     result = stream_agent_run(prompt, ws)
     if result.get("summary"):
         msgs.append({"role": "user", "content": text})
         msgs.append({"role": "assistant",
                      "content": "Coding agent result: "
                                 + result["summary"][:800]})
+        conv.log_turn("assistant",
+                      "Coding agent result: " + result["summary"][:800],
+                      session="agent", workspace=ws)
     return True
 
 
@@ -225,13 +232,21 @@ def _slash(line: str, msgs: list[dict]) -> tuple[bool, list[dict]]:
 @app.command()
 def chat() -> None:
     """Type anything, get an answer. /model switches models. exit leaves."""
+    from ...app import conversations as conv
+    from ..prompt_style import rich_prompt
     show_banner(console)
     console.print("[muted]just type — like ChatGPT. /model switch models, "
                   "/clear resets, /help commands, exit leaves.[/muted]\n")
     msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    past = conv.recent_messages(8)
+    if past:
+        msgs.extend(past)
+        st = conv.stats()
+        console.print(f"[muted]🧠 memory: {st['turns']} earlier turns restored "
+                      f"from {st['path']}[/muted]\n")
     while True:
         try:
-            line = console.input("[bold cyan]you ❯ [/]").strip()
+            line = console.input(rich_prompt()).strip()
         except (KeyboardInterrupt, EOFError):
             console.print("[muted]bye[/muted]")
             return
@@ -258,4 +273,7 @@ def chat() -> None:
                 msgs.pop()
                 continue
         msgs.append({"role": "assistant", "content": out})
+        ws = SELECTED_WORKSPACE.get("path") or ""
+        conv.log_turn("user", line, session="chat", workspace=ws)
+        conv.log_turn("assistant", out, session="chat", workspace=ws)
         print_answer(out)
