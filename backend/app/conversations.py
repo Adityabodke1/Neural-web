@@ -68,9 +68,49 @@ def recent_messages(n_turns: int = 8) -> list[dict]:
     return [{"role": r["role"], "content": r["content"]} for r in picked]
 
 
-def recent_turns(limit: int = 20) -> list[dict]:
-    """Last `limit` records with timestamps (for the `conversations` view)."""
-    return list(_iter_records())[-limit:]
+def recent_turns(limit: int = 20, session: str | None = None) -> list[dict]:
+    """Last `limit` records with timestamps (for the `conversations` view).
+
+    Pass `session` to show one surface only (e.g. the app chat thread) while
+    the model still recalls every surface through `recent_messages`.
+    """
+    recs = [r for r in _iter_records()
+            if session is None or r.get("session") == session]
+    return recs[-limit:]
+
+
+def clear_session(session: str = "app") -> int:
+    """Remove one surface's turns, keeping every other session's memory.
+
+    Returns the number of records removed. Rewrites via a temp file so a
+    crash can never truncate the history mid-write.
+    """
+    try:
+        if not CONV_PATH.exists():
+            return 0
+        kept: list[str] = []
+        removed = 0
+        with CONV_PATH.open(encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    rec = json.loads(stripped)
+                except Exception:
+                    kept.append(stripped)          # keep unparseable lines
+                    continue
+                if isinstance(rec, dict) and rec.get("session") == session:
+                    removed += 1
+                else:
+                    kept.append(stripped)
+        CONV_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = CONV_PATH.with_suffix(".tmp")
+        tmp.write_text("".join(k + "\n" for k in kept), encoding="utf-8")
+        tmp.replace(CONV_PATH)
+        return removed
+    except Exception:
+        return 0
 
 
 def stats() -> dict:

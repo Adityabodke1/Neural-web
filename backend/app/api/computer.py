@@ -44,6 +44,70 @@ async def approvals(status: str = "pending"):
     return permissions.list_approvals(status)
 
 
+# ---------------- folder picker (app) ----------------
+
+@router.get("/browse")
+async def browse(path: str = "", show_hidden: bool = False):
+    """Directory listing for the app's folder picker (folders only)."""
+    from pathlib import Path
+    base = Path(path).expanduser() if path.strip() else Path.home()
+    try:
+        base = base.resolve()
+    except OSError:
+        raise HTTPException(400, "bad path")
+    if not base.exists() or not base.is_dir():
+        raise HTTPException(404, f"not a directory: {base}")
+    dirs = []
+    try:
+        entries = sorted(base.iterdir(), key=lambda p: p.name.lower())
+    except PermissionError:
+        raise HTTPException(403, f"permission denied: {base}")
+    for p in entries:
+        if not show_hidden and p.name.startswith("."):
+            continue
+        try:
+            if p.is_dir():
+                dirs.append({"name": p.name, "path": str(p)})
+        except OSError:
+            continue
+    roots = [{"name": "Home", "path": str(Path.home())}]
+    seen = {str(Path.home())}
+    for f in permissions.list_folders():
+        if not f.get("active") or f["path"] in seen:
+            continue
+        if not Path(f["path"]).exists():       # skip stale test folders
+            continue
+        seen.add(f["path"])
+        roots.append({"name": f.get("label") or Path(f["path"]).name,
+                      "path": f["path"]})
+        if len(roots) >= 6:                    # keep the picker calm
+            break
+    return {
+        "path": str(base),
+        "parent": str(base.parent) if base.parent != base else "",
+        "dirs": dirs[:500],
+        "roots": roots,
+        "authorized": [f["path"] for f in permissions.list_folders()
+                       if f.get("active")],
+    }
+
+
+class MkdirRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/browse/mkdir")
+async def browse_mkdir(req: MkdirRequest):
+    """Create a folder from the picker ('New folder' button)."""
+    from pathlib import Path
+    p = Path(req.path).expanduser()
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(422, f"could not create folder: {e}")
+    return {"created": str(p), "path": str(p)}
+
+
 @router.post("/approvals/{approval_id}/decide")
 async def decide(approval_id: int, approve: bool):
     ok = permissions.decide_approval(approval_id, approve)

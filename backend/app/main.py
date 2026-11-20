@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import computer, history, providers, research, scraping, settings
+from .api import chat, computer, history, providers, research, scraping, settings
 from .database.database import init_db
 from .providers import manager as pm
 
@@ -30,7 +30,7 @@ app.add_middleware(
     allow_credentials=False,
 )
 
-for r in (research.router, scraping.router, history.router,
+for r in (chat.router, research.router, scraping.router, history.router,
           providers.router, settings.router, computer.router):
     app.include_router(r)
 

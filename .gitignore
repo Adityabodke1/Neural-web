@@ -3,8 +3,11 @@ __pycache__/
 *.pyc
 .env
 neural_web.db
+neural_web.db-shm
+neural_web.db-wal
 exports/*
 !exports/.gitkeep
 node_modules/
 frontend/dist/
 .vite/
+*.tsbuildinfo

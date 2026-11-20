@@ -10,9 +10,10 @@ export function Card({
   title?: string;
 }) {
   return (
-    <div className={`glass glass-hover p-5 ${className}`}>
+    <div className={`panel p-5 ${className}`}>
       {title && (
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200/70">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em]"
+          style={{ color: "var(--muted)" }}>
           {title}
         </div>
       )}
@@ -23,46 +24,48 @@ export function Card({
 
 export function Stat({ label, value, accent }: { label: string; value: ReactNode; accent?: string }) {
   return (
-    <div className="glass glass-hover p-4">
-      <div className="text-[11px] uppercase tracking-wider text-slate-400">{label}</div>
-      <div className={`mt-1 text-2xl font-bold ${accent ?? "text-slate-100"}`}>{value}</div>
+    <div className="panel p-4">
+      <div className="text-[11px] uppercase tracking-wider" style={{ color: "var(--faint)" }}>{label}</div>
+      <div className={`mt-1 text-2xl font-semibold ${accent ?? ""}`}
+        style={{ color: accent ? undefined : "var(--text)" }}>{value}</div>
     </div>
   );
 }
 
 export function Badge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    complete: "bg-emerald-400/10 text-emerald-300 border-emerald-400/30",
-    verified: "bg-emerald-400/10 text-emerald-300 border-emerald-400/30",
-    ok: "bg-emerald-400/10 text-emerald-300 border-emerald-400/30",
-    running: "bg-cyan-400/10 text-cyan-300 border-cyan-400/30 pulse-dot",
-    queued: "bg-sky-400/10 text-sky-300 border-sky-400/30",
-    partial: "bg-amber-400/10 text-amber-300 border-amber-400/30",
-    failed: "bg-rose-400/10 text-rose-300 border-rose-400/30",
-    error: "bg-rose-400/10 text-rose-300 border-rose-400/30",
-    contradicted: "bg-rose-400/10 text-rose-300 border-rose-400/30",
-    blocked: "bg-amber-400/10 text-amber-300 border-amber-400/30",
-    unverified: "bg-slate-400/10 text-slate-400 border-slate-400/20",
-    missing: "bg-slate-400/10 text-slate-500 border-slate-500/20",
+  const map: Record<string, { bg: string; fg: string; bd: string }> = {
+    complete: { bg: "rgba(108,192,139,0.10)", fg: "var(--ok)", bd: "rgba(108,192,139,0.35)" },
+    verified: { bg: "rgba(108,192,139,0.10)", fg: "var(--ok)", bd: "rgba(108,192,139,0.35)" },
+    ok: { bg: "rgba(108,192,139,0.10)", fg: "var(--ok)", bd: "rgba(108,192,139,0.35)" },
+    running: { bg: "rgba(139,157,255,0.12)", fg: "var(--accent)", bd: "rgba(139,157,255,0.35)" },
+    queued: { bg: "rgba(139,157,255,0.08)", fg: "var(--accent)", bd: "rgba(139,157,255,0.25)" },
+    partial: { bg: "rgba(217,164,65,0.10)", fg: "var(--warn)", bd: "rgba(217,164,65,0.35)" },
+    failed: { bg: "rgba(224,108,117,0.10)", fg: "var(--err)", bd: "rgba(224,108,117,0.35)" },
+    error: { bg: "rgba(224,108,117,0.10)", fg: "var(--err)", bd: "rgba(224,108,117,0.35)" },
+    contradicted: { bg: "rgba(224,108,117,0.10)", fg: "var(--err)", bd: "rgba(224,108,117,0.35)" },
+    blocked: { bg: "rgba(217,164,65,0.10)", fg: "var(--warn)", bd: "rgba(217,164,65,0.35)" },
+    unverified: { bg: "rgba(154,161,171,0.08)", fg: "var(--muted)", bd: "rgba(154,161,171,0.22)" },
+    missing: { bg: "rgba(154,161,171,0.06)", fg: "var(--faint)", bd: "rgba(154,161,171,0.20)" },
   };
-  const cls = map[status] ?? "bg-slate-400/10 text-slate-400 border-slate-400/20";
+  const c = map[status] ?? map.unverified;
   return (
-    <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+    <span className="inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium"
+      style={{ background: c.bg, color: c.fg, borderColor: c.bd }}>
       {status}
     </span>
   );
 }
 
 export function Bar({ used, limit }: { used: number; limit: number | null }) {
-  if (!limit) return <span className="text-xs text-slate-500">quota unavailable</span>;
+  if (!limit) return <span className="text-xs" style={{ color: "var(--faint)" }}>quota unavailable</span>;
   const pct = Math.min(100, (used / limit) * 100);
-  const color = pct < 60 ? "bg-emerald-400" : pct < 85 ? "bg-amber-400" : "bg-rose-400";
+  const color = pct < 60 ? "var(--ok)" : pct < 85 ? "var(--warn)" : "var(--err)";
   return (
     <div className="w-full">
-      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-700/50">
-        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
+      <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: "var(--panel-3)" }}>
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
       </div>
-      <div className="mt-1 text-[11px] text-slate-400">
+      <div className="mt-1 text-[11px]" style={{ color: "var(--faint)" }}>
         {used.toLocaleString()} / {limit.toLocaleString()} tokens ({pct.toFixed(0)}%)
       </div>
     </div>
@@ -71,8 +74,8 @@ export function Bar({ used, limit }: { used: number; limit: number | null }) {
 
 export function Spinner({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 text-sm text-cyan-200/80">
-      <span className="pulse-dot text-lg">◉</span> {label}
+    <div className="flex items-center gap-2 text-sm" style={{ color: "var(--muted)" }}>
+      <span className="pulse-dot text-lg" aria-hidden>◉</span> {label}
     </div>
   );
 }

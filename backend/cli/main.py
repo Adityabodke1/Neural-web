@@ -14,7 +14,7 @@ from ..app.database import repository as repo
 from ..app.database.database import init_db
 from .banner import OWNER, VERSION, show_banner, show_header, status_line
 from .ui.spin import thinking_status
-from .commands import chat_cmd, computer_cmd, data_cmd, models_cmd, research_cmd, voice_cmd
+from .commands import app_cmd, chat_cmd, computer_cmd, data_cmd, models_cmd, research_cmd, voice_cmd
 from .theme import THEME
 
 console = Console(theme=THEME)
@@ -55,6 +55,7 @@ for fn, name, helptext in [
     (computer_cmd.approve, "approve", "Approve a pending level-3 operation"),
     (computer_cmd.coding, "coding", "Autonomous coding agent"),
     (voice_cmd.voice, "voice", "Agentic voice mode — speak a command, the agent acts on your computer"),
+    (app_cmd.app, "app", "Open the NEURAL WEB desktop app (chat, agent, research)"),
     (computer_cmd.clear_cache, "clear-cache", "Clear scrape caches"),
 ]:
     app.command(name=name, help=helptext)(fn)
