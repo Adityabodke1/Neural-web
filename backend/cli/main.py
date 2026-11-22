@@ -181,7 +181,7 @@ def interactive():
                 chat_msgs = [chat_msgs[0]] + chat_msgs[-22:]
             with thinking_status(console):
                 try:
-                    out = chat_cmd.ai_reply(chat_msgs)
+                    out = chat_cmd.ai_reply(chat_msgs, line)
                 except Exception as e:
                     console.print(f"[err]error:[/] {e}")
                     chat_msgs.pop()

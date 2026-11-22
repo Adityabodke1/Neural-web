@@ -161,11 +161,23 @@ def _workspace_slash(args: list[str]) -> None:
                   "if missing)[/muted]")
 
 
-def ai_reply(messages: list[dict]) -> str:
-    """One chat completion through the configured model chain."""
+def ai_reply(messages: list[dict], user_text: str = "") -> str:
+    """One chat completion, with one retry for harmless persona refusals."""
     from ...app.ai.provider import ai_provider
-    return asyncio.run(ai_provider.chat(
+    from ...app.ai.freedom import (should_retry, with_persona_clarification,
+                                   is_refusal)
+    out = asyncio.run(ai_provider.chat(
         messages, request_type="cli_chat", temperature=0.4))
+    if should_retry(user_text, out):
+        try:
+            retry = asyncio.run(ai_provider.chat(
+                with_persona_clarification(messages),
+                request_type="cli_chat_persona", temperature=0.7))
+            if retry.strip() and not is_refusal(retry):
+                return retry
+        except Exception:
+            pass
+    return out
 
 
 def print_answer(out: str) -> None:
@@ -276,7 +288,7 @@ def chat() -> None:
             msgs = [msgs[0]] + msgs[-22:]
         with thinking_status(console):
             try:
-                out = ai_reply(msgs)
+                out = ai_reply(msgs, line)
             except Exception as e:
                 console.print(f"[err]error:[/] {e}")
                 msgs.pop()

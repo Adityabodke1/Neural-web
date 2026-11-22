@@ -114,6 +114,20 @@ async def chat(req: ChatRequest):
     except Exception as e:
         raise HTTPException(502, f"model error: {e}")
     reply = (result.get("content") or "").strip()
+    # One retry for a harmless personality/roleplay refusal from the provider.
+    from ..ai.freedom import (is_refusal, should_retry,
+                             with_persona_clarification)
+    if should_retry(msg, reply):
+        try:
+            retry = await ai_provider.chat_detailed(
+                with_persona_clarification(msgs),
+                request_type="app_chat_persona", temperature=0.7,
+                model_spec=(req.model or "").strip() or "auto")
+            retry_text = (retry.get("content") or "").strip()
+            if retry_text and not is_refusal(retry_text):
+                result, reply = retry, retry_text
+        except Exception:
+            pass
     if not reply:
         raise HTTPException(502, "the model returned an empty reply — try "
                                  "switching models")
