@@ -17,6 +17,9 @@ client = TestClient(app)
 def _isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(conv, "CONV_DIR", tmp_path)
     monkeypatch.setattr(conv, "CONV_PATH", tmp_path / "conversations.jsonl")
+    from backend.app import long_memory as lm
+    monkeypatch.setattr(lm, "PROFILE_PATH", tmp_path / "profile.json")
+    monkeypatch.setattr(lm, "_BACKFILLED", False)
 
 
 def test_meta_filters_disabled_and_picks_active(monkeypatch):
@@ -148,10 +151,32 @@ def test_chat_gives_the_model_exact_time_and_dated_history(monkeypatch, tmp_path
     system = seen["messages"][0]["content"]
     assert "CURRENT DATE/TIME" in system
     assert "DATED MEMORY" in system
+    assert "RECENT DATED HISTORY" in system
+    assert "[today, " in system                    # real stored timestamp
+    assert "user: yesterday I was fixing the build" in system
+    # replayed turns stay CLEAN so the model cannot echo a timestamp tag
     recalled = [m["content"] for m in seen["messages"][1:-1]]
-    assert recalled[0].startswith("[today, ")          # real stored timestamp
-    assert recalled[0].endswith("yesterday I was fixing the build")
-    assert recalled[1].startswith("[today, ")
+    assert recalled == ["yesterday I was fixing the build", "did it work?"]
+
+
+def test_chat_learns_a_name_and_keeps_it_forever(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    seen: list[list[dict]] = []
+
+    async def fake(messages, **kwargs):
+        seen.append(messages)
+        return {"content": "noted", "model_ref": "groq/x"}
+
+    monkeypatch.setattr(chat_api.ai_provider, "chat_detailed", fake)
+    assert client.post("/api/chat", json={
+        "message": "Your name is Riya from now on"}).status_code == 200
+    assert client.post("/api/chat", json={
+        "message": "what should I call you?"}).status_code == 200
+    system = seen[1][0]["content"]
+    assert "LONG-TERM MEMORY" in system
+    assert "Riya" in system
+    from backend.app import long_memory as lm
+    assert lm.names()["ai_name"] == "Riya"
 
 
 def test_browse_lists_directories_and_parent(tmp_path):

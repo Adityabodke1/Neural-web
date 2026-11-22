@@ -14,7 +14,9 @@ import pytest
 @pytest.fixture()
 def mem_home(tmp_path, monkeypatch):
     from backend.app.voice import companion
+    from backend.app import long_memory
     monkeypatch.setattr(companion, "MEMORY_FILE", tmp_path / "memory.txt")
+    monkeypatch.setattr(long_memory, "PROFILE_PATH", tmp_path / "profile.json")
     return companion
 
 

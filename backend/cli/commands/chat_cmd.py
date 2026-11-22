@@ -161,6 +161,16 @@ def _workspace_slash(args: list[str]) -> None:
                   "if missing)[/muted]")
 
 
+def system_content(user_text: str = "", skip_last: int = 16) -> str:
+    """Base prompt + exact clock + dated history + forever memory + style."""
+    from ...app import conversations as conv
+    from ...app import long_memory as lm
+    parts = [conv.memory_context(SYSTEM_PROMPT),
+             conv.dated_history_block(16),
+             lm.long_term_block(user_text, skip_last=skip_last)]
+    return "\n\n".join(p for p in parts if p)
+
+
 def ai_reply(messages: list[dict], user_text: str = "") -> str:
     """One chat completion, with one retry for harmless persona refusals."""
     from ...app.ai.provider import ai_provider
@@ -254,13 +264,16 @@ def _slash(line: str, msgs: list[dict]) -> tuple[bool, list[dict]]:
 def chat() -> None:
     """Type anything, get an answer. /model switches models. exit leaves."""
     from ...app import conversations as conv
+    from ...app import long_memory as lm
     from ..prompt_style import rich_prompt
     show_banner(console)
     console.print("[muted]just type — like ChatGPT. /model switch models, "
                   "/clear resets, /help commands, exit leaves.[/muted]\n")
+    if lm.backfill():
+        console.print("[muted]🧠 long-term memory updated from earlier chats[/muted]")
     msgs: list[dict] = [{"role": "system",
-                         "content": conv.memory_context(SYSTEM_PROMPT)}]
-    past = conv.recent_messages(8, with_time=True)
+                         "content": system_content("")}]
+    past = conv.recent_messages(8)
     if past:
         msgs.extend(past)
         st = conv.stats()
@@ -287,8 +300,9 @@ def chat() -> None:
         msgs.append({"role": "user", "content": line})
         if len(msgs) > 26:  # keep context bounded, always keep system prompt
             msgs = [msgs[0]] + msgs[-22:]
-        # refresh the exact clock each turn (long sessions cross midnight)
-        msgs[0]["content"] = conv.memory_context(SYSTEM_PROMPT)
+        # learn names/preferences, then refresh clock + forever memory + style
+        lm.observe(line)
+        msgs[0]["content"] = system_content(line, skip_last=max(16, len(msgs) - 2))
         with thinking_status(console):
             try:
                 out = ai_reply(msgs, line)

@@ -199,12 +199,22 @@ def memory(
                  if forget.lower() not in l.lower()]
         companion.MEMORY_FILE.write_text("\n".join(lines) + "\n",
                                          encoding="utf-8")
-        console.print(f"[ok]forgot everything containing '{forget}'[/ok]")
+        from ...app import long_memory as lm
+        removed = lm.forget(forget)
+        console.print(f"[ok]forgot everything containing '{forget}' "
+                      f"({removed} stored fact(s) removed)[/ok]")
         return
     text = companion.load()
     console.print(Panel(
         text or "(nothing yet — talk to her and she'll remember)",
         title=f"🧠 {companion.MEMORY_FILE}", border_style="cyan"))
+    try:
+        from ...app import long_memory as lm
+        console.print(Panel(
+            lm.profile_block(),
+            title=f"🧠 forever memory — {lm.PROFILE_PATH}", border_style="cyan"))
+    except Exception:
+        pass
 
 
 def conversations(limit: int = typer.Option(20, "--last", help="How many turns to show"),

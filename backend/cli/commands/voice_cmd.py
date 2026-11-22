@@ -168,6 +168,14 @@ def voice(
         if not user_cmd:
             return
 
+        # long-term memory: names, prefs, explicit "remember this"
+        try:
+            from ...app import long_memory as lm
+            lm.backfill()
+            lm.observe(user_cmd)
+        except Exception:
+            pass
+
         # ---- 2. user is done → leave voice mode -----------------------------
         if conversational and is_exit_phrase(user_cmd):
             console.print("[muted]you said bye — leaving voice mode[/muted]")

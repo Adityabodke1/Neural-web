@@ -103,6 +103,7 @@ def interactive():
     init_db()
     show_banner(console)
     from ..app import conversations as conv
+    from ..app import long_memory as lm
     from .prompt_style import active_workspace, prompt_markup
     commands = ["research", "scrape", "crawl", "extract", "compare", "monitor",
                 "sources", "explain-source", "history", "search-memory", "export",
@@ -118,9 +119,10 @@ def interactive():
                   "Or use commands (TAB autocomplete). 'help' for commands, "
                   "'exit' to leave[/muted]")
     # durable memory: replay earlier conversations so she remembers you
+    lm.backfill()
     chat_msgs: list[dict] = [{"role": "system",
-                              "content": conv.memory_context(chat_cmd.SYSTEM_PROMPT)}]
-    past = conv.recent_messages(8, with_time=True)
+                              "content": chat_cmd.system_content("")}]
+    past = conv.recent_messages(8)
     if past:
         chat_msgs.extend(past)
         st = conv.stats()
@@ -180,8 +182,9 @@ def interactive():
             chat_msgs.append({"role": "user", "content": line})
             if len(chat_msgs) > 26:
                 chat_msgs = [chat_msgs[0]] + chat_msgs[-22:]
-            chat_msgs[0]["content"] = conv.memory_context(
-                chat_cmd.SYSTEM_PROMPT)
+            lm.observe(line)
+            chat_msgs[0]["content"] = chat_cmd.system_content(
+                line, skip_last=max(16, len(chat_msgs) - 2))
             with thinking_status(console):
                 try:
                     out = chat_cmd.ai_reply(chat_msgs, line)

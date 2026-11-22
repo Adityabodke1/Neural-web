@@ -140,3 +140,31 @@ def test_recent_messages_can_carry_timestamps(tmp_path, monkeypatch):
     assert msgs[1]["content"] == "[yesterday, 21:05] fix it"
     # default stays clean for callers/tests that do not need dates
     assert conv.recent_messages(2)[0]["content"] == "build failed"
+
+
+def test_dated_history_block_keeps_dates_out_of_messages(tmp_path, monkeypatch):
+    import json
+    from datetime import datetime
+    monkeypatch.setattr(conv, "CONV_DIR", tmp_path)
+    monkeypatch.setattr(conv, "CONV_PATH", tmp_path / "conversations.jsonl")
+    rows = [
+        {"ts": "2026-11-21T21:04:00", "role": "user",
+         "content": "build failed\nplease help"},
+        {"ts": "2026-11-21T21:05:00", "role": "assistant",
+         "content": "fix it"},
+        {"ts": "2026-11-22T08:30:00", "role": "user", "content": "hi"},
+    ]
+    conv.CONV_PATH.write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    block = conv.dated_history_block(2, now=datetime(2026, 11, 22, 9, 0))
+    assert block.startswith("RECENT DATED HISTORY")
+    assert "[yesterday, 21:05] assistant: fix it" in block
+    assert "[today, 08:30] user: hi" in block
+    assert "build failed" not in block            # window is the last 2 only
+    assert "RECENT" not in conv.recent_messages(2)[0]["content"]
+
+
+def test_dated_history_block_is_empty_without_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(conv, "CONV_DIR", tmp_path)
+    monkeypatch.setattr(conv, "CONV_PATH", tmp_path / "conversations.jsonl")
+    assert conv.dated_history_block() == ""

@@ -20,16 +20,18 @@ CONV_PATH = CONV_DIR / "conversations.jsonl"
 MAX_CONTENT = 8000          # keep one huge pasted reply from bloating the log
 
 DATED_MEMORY_GUIDANCE = (
-    "DATED MEMORY: recalled messages below are prefixed with the real date and "
-    "time they were said (for example '[yesterday, 21:04] ...'). Treat those "
-    "labels as ground truth and never invent a date or time. Be time-aware and "
-    "proactive: when something was discussed yesterday, earlier this week or on "
-    "a specific date, bring it up naturally and ask how it went — e.g. "
-    "\"Yesterday you said the build was failing — did you get it fixed?\" or "
-    "\"What happened with that demo you mentioned last Friday?\". Use short, "
-    "natural callbacks; do not list the timestamps mechanically. If the most "
-    "recent recalled turn is from yesterday or earlier and mentions unfinished "
-    "work, open your reply with a brief, natural follow-up about it."
+    "DATED MEMORY: the RECENT DATED HISTORY block lists recent turns with the "
+    "real date and time they were said (for example '[yesterday, 21:04]'). "
+    "Treat those labels as ground truth and never invent a date or time. The "
+    "labels are metadata — NEVER copy a bracketed timestamp into your own "
+    "reply. Be time-aware and proactive: when something was discussed "
+    "yesterday, earlier this week or on a specific date, bring it up naturally "
+    "and ask how it went — e.g. \"Yesterday you said the build was failing — "
+    "did you get it fixed?\" or \"What happened with that demo you mentioned "
+    "last Friday?\". Use short, natural callbacks; do not list the timestamps "
+    "mechanically. If the most recent recalled turn is from yesterday or "
+    "earlier and mentions unfinished work, open your reply with a brief, "
+    "natural follow-up about it."
 )
 
 
@@ -133,6 +135,32 @@ def recent_messages(n_turns: int = 8, with_time: bool = False,
                 content = f"[{when}] {content}"
         out.append({"role": r["role"], "content": content})
     return out
+
+
+def dated_history_block(n_messages: int = 16,
+                        now: datetime | None = None) -> str:
+    """Dated transcript of recent turns, meant for the SYSTEM prompt.
+
+    Keeping the timestamps here (instead of prefixing every replayed message)
+    gives the model temporal grounding without tempting it to echo a
+    ``[today, 13:36]`` tag in its own reply.
+
+    Returns ``""`` when there is no history yet.
+    """
+    recs = list(_iter_records())
+    picked = recs[-max(1, n_messages):]
+    if not picked:
+        return ""
+    lines = ["RECENT DATED HISTORY (oldest first, real timestamps):"]
+    for r in picked:
+        when = format_when(r.get("ts", ""), now)
+        who = "user" if r.get("role") == "user" else "assistant"
+        content = str(r.get("content", "")).replace("\n", " ").strip()
+        if len(content) > 500:
+            content = content[:497] + "..."
+        prefix = f"[{when}] " if when else ""
+        lines.append(f"{prefix}{who}: {content}")
+    return "\n".join(lines)
 
 
 def recent_turns(limit: int = 20, session: str | None = None) -> list[dict]:

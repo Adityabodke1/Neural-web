@@ -222,12 +222,17 @@ Keep real safety boundaries for genuinely harmful, illegal or abusive requests."
 
 
 def persona_prompt(max_chars: int = 3000) -> str:
+    from .. import long_memory as lm
     mem = recent(max_chars - 900)
-    name = load_prefs_name() or "Aditya"
+    stored = lm.names()
+    name = stored.get("user_name") or load_prefs_name() or "Aditya"
+    ai_name = stored.get("ai_name") or COMPANION_NAME
     now = _dt.datetime.now().astimezone().strftime("%A, %d %B %Y, %I:%M %p (%Z)")
-    return _PERSONA_TMPL.format(name=COMPANION_NAME, human=name,
+    base = _PERSONA_TMPL.format(name=ai_name, human=name,
                                 now=now,
                                 memory=mem or "(getting to know you — this may be your first real chat)")
+    extra = [lm.profile_block(), lm.style_profile(), lm.STYLE_AND_WARMTH]
+    return base + "\n\n" + "\n\n".join(x for x in extra if x)
 
 
 def load_prefs_name() -> str:
