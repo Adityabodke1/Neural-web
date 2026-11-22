@@ -118,8 +118,9 @@ def interactive():
                   "Or use commands (TAB autocomplete). 'help' for commands, "
                   "'exit' to leave[/muted]")
     # durable memory: replay earlier conversations so she remembers you
-    chat_msgs: list[dict] = [{"role": "system", "content": chat_cmd.SYSTEM_PROMPT}]
-    past = conv.recent_messages(8)
+    chat_msgs: list[dict] = [{"role": "system",
+                              "content": conv.memory_context(chat_cmd.SYSTEM_PROMPT)}]
+    past = conv.recent_messages(8, with_time=True)
     if past:
         chat_msgs.extend(past)
         st = conv.stats()
@@ -179,6 +180,8 @@ def interactive():
             chat_msgs.append({"role": "user", "content": line})
             if len(chat_msgs) > 26:
                 chat_msgs = [chat_msgs[0]] + chat_msgs[-22:]
+            chat_msgs[0]["content"] = conv.memory_context(
+                chat_cmd.SYSTEM_PROMPT)
             with thinking_status(console):
                 try:
                     out = chat_cmd.ai_reply(chat_msgs, line)

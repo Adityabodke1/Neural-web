@@ -221,13 +221,14 @@ def conversations(limit: int = typer.Option(20, "--last", help="How many turns t
                       f"{st['path']}[/muted]")
         return
     t = Table(box=box.SIMPLE, header_style="bold cyan")
-    t.add_column("when", style="muted", width=19)
+    t.add_column("when", style="muted", width=24)
     t.add_column("who", width=12)
     t.add_column("message", overflow="fold")
     for r in turns:
         role = "you" if r["role"] == "user" else "neural-web"
         color = "cyan" if r["role"] == "user" else "magenta"
-        t.add_row(str(r.get("ts", "")), f"[{color}]{role}[/{color}]",
+        when = conv.format_when(r.get("ts", "")) or str(r.get("ts", ""))
+        t.add_row(when, f"[{color}]{role}[/{color}]",
                   r["content"][:400].replace("\n", " "))
     console.print(t)
     console.print(f"[muted]saved file: {st['path']} ({st['turns']} turns). "

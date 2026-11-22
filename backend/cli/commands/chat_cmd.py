@@ -258,8 +258,9 @@ def chat() -> None:
     show_banner(console)
     console.print("[muted]just type — like ChatGPT. /model switch models, "
                   "/clear resets, /help commands, exit leaves.[/muted]\n")
-    msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    past = conv.recent_messages(8)
+    msgs: list[dict] = [{"role": "system",
+                         "content": conv.memory_context(SYSTEM_PROMPT)}]
+    past = conv.recent_messages(8, with_time=True)
     if past:
         msgs.extend(past)
         st = conv.stats()
@@ -286,6 +287,8 @@ def chat() -> None:
         msgs.append({"role": "user", "content": line})
         if len(msgs) > 26:  # keep context bounded, always keep system prompt
             msgs = [msgs[0]] + msgs[-22:]
+        # refresh the exact clock each turn (long sessions cross midnight)
+        msgs[0]["content"] = conv.memory_context(SYSTEM_PROMPT)
         with thinking_status(console):
             try:
                 out = ai_reply(msgs, line)

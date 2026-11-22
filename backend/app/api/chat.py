@@ -10,7 +10,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..ai.provider import ai_provider
-from ..conversations import recent_messages, recent_turns, stats
+from ..conversations import (memory_context, recent_messages, recent_turns,
+                             stats)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -104,8 +105,8 @@ async def chat(req: ChatRequest):
     msg = req.message.strip()
     if not msg:
         raise HTTPException(422, "empty message")
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
-    msgs.extend(recent_messages(8))
+    msgs = [{"role": "system", "content": memory_context(SYSTEM_PROMPT)}]
+    msgs.extend(recent_messages(8, with_time=True))
     msgs.append({"role": "user", "content": msg})
     try:
         result = await ai_provider.chat_detailed(

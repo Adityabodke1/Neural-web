@@ -133,6 +133,27 @@ def test_new_chat_keeps_other_sessions(monkeypatch, tmp_path):
     assert client.get("/api/chat/history").json()["turns"] == []
 
 
+def test_chat_gives_the_model_exact_time_and_dated_history(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    conv.log_turn("user", "yesterday I was fixing the build", session="app")
+    conv.log_turn("assistant", "did it work?", session="app")
+    seen: dict = {}
+
+    async def fake(messages, **kwargs):
+        seen["messages"] = messages
+        return {"content": "ok", "model_ref": "groq/x"}
+
+    monkeypatch.setattr(chat_api.ai_provider, "chat_detailed", fake)
+    assert client.post("/api/chat", json={"message": "hi"}).status_code == 200
+    system = seen["messages"][0]["content"]
+    assert "CURRENT DATE/TIME" in system
+    assert "DATED MEMORY" in system
+    recalled = [m["content"] for m in seen["messages"][1:-1]]
+    assert recalled[0].startswith("[today, ")          # real stored timestamp
+    assert recalled[0].endswith("yesterday I was fixing the build")
+    assert recalled[1].startswith("[today, ")
+
+
 def test_browse_lists_directories_and_parent(tmp_path):
     (tmp_path / "alpha").mkdir()
     (tmp_path / "beta").mkdir()

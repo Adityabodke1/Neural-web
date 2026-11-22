@@ -91,3 +91,52 @@ def test_conversations_command_registered():
     cli = get_command(app)
     assert "conversations" in cli.commands
     assert "chat" in cli.commands
+
+
+# --------------------------------------------------- dated memory / clock
+def test_format_when_labels():
+    from datetime import datetime
+    now = datetime(2026, 11, 22, 21, 0)
+    assert conv.format_when("2026-11-22T09:05:00", now) == "today, 09:05"
+    assert conv.format_when("2026-11-21T23:40:00", now) == "yesterday, 23:40"
+    assert conv.format_when("2026-11-18T10:00:00", now) == "4 days ago, 10:00"
+    assert conv.format_when("2026-11-01T08:30:00", now) == "Sun 01 Nov 2026, 08:30"
+    assert conv.format_when("", now) == ""
+    assert conv.format_when("not-a-date", now) == ""
+
+
+def test_time_context_is_exact_and_timezone_aware():
+    from datetime import datetime, timedelta, timezone
+    ist = timezone(timedelta(hours=5, minutes=30))
+    out = conv.time_context(datetime(2026, 11, 22, 21, 5, tzinfo=ist))
+    assert "Sunday, 22 November 2026" in out
+    assert "09:05 PM" in out
+    assert "UTC+05:30" in out
+    assert "IST" in out
+
+
+def test_memory_context_includes_rules_and_clock():
+    out = conv.memory_context("BASE-PROMPT")
+    assert out.startswith("BASE-PROMPT")
+    assert "DATED MEMORY" in out
+    assert "yesterday" in out.lower()
+    assert "CURRENT DATE/TIME" in out
+
+
+def test_recent_messages_can_carry_timestamps(tmp_path, monkeypatch):
+    import json
+    from datetime import datetime
+    monkeypatch.setattr(conv, "CONV_DIR", tmp_path)
+    monkeypatch.setattr(conv, "CONV_PATH", tmp_path / "conversations.jsonl")
+    rows = [
+        {"ts": "2026-11-21T21:04:00", "role": "user", "content": "build failed"},
+        {"ts": "2026-11-21T21:05:00", "role": "assistant", "content": "fix it"},
+    ]
+    conv.CONV_PATH.write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    msgs = conv.recent_messages(2, with_time=True,
+                                now=datetime(2026, 11, 22, 9, 0))
+    assert msgs[0]["content"] == "[yesterday, 21:04] build failed"
+    assert msgs[1]["content"] == "[yesterday, 21:05] fix it"
+    # default stays clean for callers/tests that do not need dates
+    assert conv.recent_messages(2)[0]["content"] == "build failed"

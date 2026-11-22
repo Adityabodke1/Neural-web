@@ -65,6 +65,8 @@ def test_persona_prompt_contains_name_and_memory(mem_home):
     assert "Neura" in p
     assert "flirt" in p.lower()
     assert "works on neural web every night" in p     # memory is injected
+    assert "Current date/time" in p                     # real clock
+    assert "yesterday" in p.lower()                     # dated follow-ups
 
 
 def test_persona_human_name_from_memory(mem_home):
